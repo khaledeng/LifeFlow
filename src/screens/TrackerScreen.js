@@ -18,6 +18,7 @@ import {
   stopGoal as stopTrackingGoal,
   subscribeTrackingChanges,
 } from '../trackingService';
+import { showNotification } from '../notifications';
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -141,11 +142,13 @@ export default function TrackerScreen({ isActive = true }) {
   // ── Actions ───────────────────────────────────────────────────────────────
 
   const startGoal = async (goalId) => {
-    await startTrackingGoal(goalId);
+    const snapshot = await startTrackingGoal(goalId);
+    await showNotification(snapshot);
   };
 
   const stopGoal = async () => {
-    await stopTrackingGoal();
+    const snapshot = await stopTrackingGoal();
+    await showNotification(snapshot);
   };
 
   // ── Display helpers ───────────────────────────────────────────────────────

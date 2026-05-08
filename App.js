@@ -3,7 +3,7 @@ import { View, ActivityIndicator, StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { getSetupDone } from './src/storage';
-import './src/trackingNotification';
+import { registerNotificationHandlers } from './src/notifications';
 import SetupScreen from './src/screens/SetupScreen';
 import AppShell    from './src/components/AppShell';
 
@@ -14,6 +14,10 @@ export default function App() {
   const [setupDone,  setSetupDone]  = useState(false);
 
   useEffect(() => {
+    registerNotificationHandlers().catch(error => {
+      console.warn('Unable to register notification handlers', error);
+    });
+
     (async () => {
       try {
         setSetupDone(await getSetupDone());
