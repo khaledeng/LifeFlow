@@ -11,6 +11,7 @@ import {
 
 const BACKUP_VERSION = 1;
 const IS_WEB = Platform.OS === 'web';
+const BACKUP_APP_NAMES = ['LifeFlow', 'TimeTracker'];
 
 // ─── Format helpers ───────────────────────────────────────────────────────────
 
@@ -111,14 +112,16 @@ function confirmReplace(goalCount, sessionCount, backupDate) {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function DataScreen() {
+export default function DataScreen({ isActive = true }) {
   const [stats,          setStats]          = useState(null);
   const [exporting,      setExporting]      = useState(false);
   const [importing,      setImporting]      = useState(false);
   const [lastBackupInfo, setLastBackupInfo] = useState(null);
   const [log,            setLog]            = useState([]);
 
-  useEffect(() => { loadStats(); }, []);
+  useEffect(() => {
+    if (isActive) loadStats();
+  }, [isActive]);
 
   async function loadStats() {
     const [goals, sessions, active] = await Promise.all([
@@ -141,7 +144,7 @@ export default function DataScreen() {
     addLog('Preparing backup…');
     try {
       const [goals, sessions, active] = await Promise.all([getGoals(), getSessions(), getActiveSession()]);
-      const payload  = { _meta: { version: BACKUP_VERSION, exportedAt: Date.now(), appName: 'TimeTracker' }, goals, sessions, activeSession: active };
+      const payload  = { _meta: { version: BACKUP_VERSION, exportedAt: Date.now(), appName: 'LifeFlow' }, goals, sessions, activeSession: active };
       const json     = JSON.stringify(payload, null, 2);
       const fileName = `timetracker_backup_${Date.now()}.json`;
       const size     = await doExport(json, fileName);
@@ -168,8 +171,8 @@ export default function DataScreen() {
       try { payload = JSON.parse(content); }
       catch { throw new Error('File is not valid JSON.'); }
 
-      if (!payload._meta || payload._meta.appName !== 'TimeTracker')
-        throw new Error('Not a valid TimeTracker backup file.');
+      if (!payload._meta || !BACKUP_APP_NAMES.includes(payload._meta.appName))
+        throw new Error('Not a valid LifeFlow backup file.');
       if (!Array.isArray(payload.goals))    throw new Error('Missing goals array.');
       if (!Array.isArray(payload.sessions)) throw new Error('Missing sessions array.');
 
@@ -339,6 +342,7 @@ export default function DataScreen() {
         </View>
 
         <Text style={s.footnote}>All data stored locally — nothing sent to any server.</Text>
+        <Text style={s.credit}>Developed by EngKhaled</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -403,4 +407,5 @@ const s = StyleSheet.create({
   logError:   { color: '#f87171' },
 
   footnote: { textAlign: 'center', color: '#252525', fontSize: 12, marginTop: 8 },
+  credit: { textAlign: 'center', color: '#333', fontSize: 12, marginTop: 8, fontWeight: '700' },
 });

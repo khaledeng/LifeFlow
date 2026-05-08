@@ -95,7 +95,7 @@ export default function AppShell() {
           <GoalsScreen isActive={activeScreen === 'goals'} />
         </View>
         <View style={{ flex: 1, display: activeScreen === 'data' ? 'flex' : 'none' }}>
-          <DataScreen />
+          <DataScreen isActive={activeScreen === 'data'} />
         </View>
       </>
     );
@@ -156,7 +156,7 @@ export default function AppShell() {
               <View style={s.drawerHeader}>
                 <Text style={s.drawerLogo}>⏱</Text>
                 <View>
-                  <Text style={s.drawerAppName}>Time Tracker</Text>
+                  <Text style={s.drawerAppName}>LifeFlow</Text>
                   <Text style={s.drawerTagline}>Track what matters</Text>
                 </View>
               </View>

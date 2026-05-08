@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "TimeTracker",
-    "slug": "TimeTracker",
+    "name": "LifeFlow",
+    "slug": "LifeFlow",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -21,7 +21,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.engkhaled.TimeTracker"
+      "package": "com.engkhaled.lifeflow"
     },
     "web": {
       "favicon": "./assets/favicon.png"
