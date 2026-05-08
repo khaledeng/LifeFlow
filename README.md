@@ -107,9 +107,12 @@ Just clarity.
 
 ## Screenshots
 
-| Tracker                                     | Statistics                                   |
-| ------------------------------------------- | -------------------------------------------- |
-Comming Soon
+| Tracker                                     
+| ------------------------------------------- 
+<img width="912" height="1595" alt="Screenshot 2026-05-08 080653" src="https://github.com/user-attachments/assets/8678ad54-3369-4660-b175-c5147da50eff" />
+| Statistics                                   |
+<img width="1277" height="1665" alt="Screenshot 2026-05-08 080624" src="https://github.com/user-attachments/assets/46c110e8-ffac-424e-8988-681c7bfc194f" />
+
 
 ---
 
