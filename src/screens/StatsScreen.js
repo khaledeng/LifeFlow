@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,16 @@ import {
   StyleSheet,
   StatusBar,
   Dimensions,
+  Modal,
+  TextInput,
+  Animated,
+  TouchableWithoutFeedback,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useIsFocused } from '@react-navigation/native';
 import { LineChart } from 'react-native-chart-kit';
-import { getGoals, getSessions } from '../storage';
+import { getActiveSession, getGoals, getSessions, saveSessions } from '../storage';
 
 const SCREEN_W = Dimensions.get('window').width;
 const TABS = ['Day', 'Week', 'Month', 'Year'];
@@ -105,8 +110,7 @@ function hexToRgb(hex) {
 function buildChartData(tab, sessions, goals) {
   const points = buildPoints(tab);
 
-  const datasets = goals.map(goal => {
-    const { r, g, b } = hexToRgb(goal.color);
+  const rawDatasets = goals.map(goal => {
     const data = points.map(p => {
       let total = 0;
       sessions.forEach(sess => {
@@ -116,17 +120,27 @@ function buildChartData(tab, sessions, goals) {
         const ce = Math.min(sess.endTime, p.end);
         total += Math.floor((ce - cs) / 1000);
       });
-      return Math.round((total / 3600) * 10) / 10;
+      return total;
     });
+    return { goal, data };
+  });
+
+  const maxSeconds = Math.max(0, ...rawDatasets.flatMap(ds => ds.data));
+  const useMinutes = maxSeconds < 3600;
+  const unit = useMinutes ? 'm' : 'h';
+  const divisor = useMinutes ? 60 : 3600;
+  const decimalPlaces = useMinutes ? 0 : 1;
+
+  const datasets = rawDatasets.map(({ goal, data }) => {
+    const { r, g, b } = hexToRgb(goal.color);
     return {
-      data,
+      data: data.map(total => Math.round((total / divisor) * 10) / 10),
       color: (opacity = 1) => `rgba(${r}, ${g}, ${b}, ${opacity})`,
       strokeWidth: 2,
     };
   });
 
-  const hasData = datasets.some(ds => ds.data.some(v => v > 0));
-  return { labels: points.map(p => p.label), datasets, hasData, goals };
+  return { labels: points.map(p => p.label), datasets, goals, unit, decimalPlaces };
 }
 
 function calcOverview(sessions) {
@@ -146,21 +160,179 @@ function calcOverview(sessions) {
   return { today, week, month, total };
 }
 
-export default function StatsScreen() {
+function includeActiveSession(sessions, activeSession) {
+  if (!activeSession) return sessions;
+
+  const now = Date.now();
+  return [
+    ...sessions,
+    {
+      id: `active_${activeSession.goalId}`,
+      goalId: activeSession.goalId,
+      startTime: activeSession.startTime,
+      endTime: now,
+      duration: Math.floor((now - activeSession.startTime) / 1000),
+    },
+  ];
+}
+
+function EditTimeModal({ visible, goal, currentSeconds, periodInfo, onSave, onClose }) {
+  const [hours, setHours] = useState('');
+  const [minutes, setMinutes] = useState('');
+  const [error, setError] = useState('');
+  const scaleAnim = useRef(new Animated.Value(0.88)).current;
+  const opacAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible && goal) {
+      setHours(String(Math.floor(currentSeconds / 3600)));
+      setMinutes(String(Math.floor((currentSeconds % 3600) / 60)));
+      setError('');
+      Animated.parallel([
+        Animated.spring(scaleAnim, { toValue: 1, damping: 18, stiffness: 220, useNativeDriver: true }),
+        Animated.timing(opacAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
+      ]).start();
+    } else {
+      scaleAnim.setValue(0.88);
+      opacAnim.setValue(0);
+    }
+  }, [visible, goal, currentSeconds, scaleAnim, opacAnim]);
+
+  if (!goal) return null;
+
+  const previewSecs = (parseInt(hours || '0', 10) * 3600) + (parseInt(minutes || '0', 10) * 60);
+
+  const handleSave = () => {
+    const h = parseInt(hours || '0', 10);
+    const m = parseInt(minutes || '0', 10);
+    if (Number.isNaN(h) || Number.isNaN(m)) { setError('Enter valid numbers.'); return; }
+    if (h < 0 || m < 0) { setError("Values can't be negative."); return; }
+    if (m > 59) { setError('Minutes must be 0-59.'); return; }
+    const maxH = Math.floor(periodInfo.totalSeconds / 3600);
+    if (h > maxH) { setError(`Max for this period is ${maxH}h.`); return; }
+    const total = h * 3600 + m * 60;
+    if (total > periodInfo.totalSeconds) { setError('Exceeds period total length.'); return; }
+    onSave(goal.id, total);
+  };
+
+  return (
+    <Modal transparent visible={visible} animationType="none" onRequestClose={onClose}>
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={m.backdrop} />
+      </TouchableWithoutFeedback>
+
+      <KeyboardAvoidingView
+        style={m.centerer}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        pointerEvents="box-none"
+      >
+        <Animated.View style={[m.card, { transform: [{ scale: scaleAnim }], opacity: opacAnim }]}>
+          <View style={m.header}>
+            <View style={[m.dot, { backgroundColor: goal.color }]} />
+            <View style={{ flex: 1 }}>
+              <Text style={m.goalName}>{goal.name}</Text>
+              <Text style={m.currentTxt}>Current: {fmtDuration(currentSeconds)}</Text>
+            </View>
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Text style={m.closeTxt}>x</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={m.divider} />
+          <Text style={m.label}>SET NEW TOTAL TIME</Text>
+
+          <View style={m.inputRow}>
+            <View style={m.inputBlock}>
+              <TextInput
+                style={[m.input, { borderColor: goal.color + '60' }]}
+                value={hours}
+                onChangeText={v => { setHours(v.replace(/[^0-9]/g, '')); setError(''); }}
+                keyboardType="number-pad"
+                placeholder="0"
+                placeholderTextColor="#2e2e2e"
+                maxLength={4}
+                selectTextOnFocus
+              />
+              <Text style={m.unitLabel}>hours</Text>
+            </View>
+
+            <Text style={m.colon}>:</Text>
+
+            <View style={m.inputBlock}>
+              <TextInput
+                style={[m.input, { borderColor: goal.color + '60' }]}
+                value={minutes}
+                onChangeText={v => { setMinutes(v.replace(/[^0-9]/g, '')); setError(''); }}
+                keyboardType="number-pad"
+                placeholder="0"
+                placeholderTextColor="#2e2e2e"
+                maxLength={2}
+                selectTextOnFocus
+              />
+              <Text style={m.unitLabel}>min</Text>
+            </View>
+          </View>
+
+          <View style={[m.preview, { backgroundColor: goal.color + '12', borderColor: goal.color + '28' }]}>
+            <Text style={[m.previewLabel, { color: goal.color + 'aa' }]}>NEW TOTAL</Text>
+            <Text style={[m.previewValue, { color: goal.color }]}>
+              {fmtDuration(previewSecs)}
+            </Text>
+          </View>
+
+          {!!error && <Text style={m.error}>{error}</Text>}
+
+          <View style={m.btnRow}>
+            <TouchableOpacity style={m.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+              <Text style={m.cancelTxt}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[m.saveBtn, { backgroundColor: goal.color }]}
+              onPress={handleSave}
+              activeOpacity={0.8}
+            >
+              <Text style={m.saveTxt}>Save</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={m.hint}>
+            Replaces all sessions for "{goal.name}" in this period with one entry.
+          </Text>
+        </Animated.View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+export default function StatsScreen({ isActive = true }) {
   const [activeTab, setActiveTab] = useState('Day');
   const [stats, setStats] = useState([]);
   const [totalTracked, setTotalTracked] = useState(0);
   const [periodInfo, setPeriodInfo] = useState(getPeriodInfo('Day'));
   const [chartData, setChartData] = useState(null);
   const [overview, setOverview] = useState({ today: 0, week: 0, month: 0, total: 0 });
-  const isFocused = useIsFocused();
+  const [editGoal, setEditGoal] = useState(null);
+  const [editSeconds, setEditSeconds] = useState(0);
+  const [modalVisible, setModalVisible] = useState(false);
 
   useEffect(() => {
-    if (isFocused) loadStats(activeTab);
-  }, [isFocused, activeTab]);
+    if (!isActive) return undefined;
+
+    loadStats(activeTab);
+    const timer = setInterval(() => loadStats(activeTab), 1000);
+    return () => clearInterval(timer);
+  }, [isActive, activeTab]);
 
   async function loadStats(tab) {
-    const [goals, sessions] = await Promise.all([getGoals(), getSessions()]);
+    const [goals, savedSessions, activeSession] = await Promise.all([
+      getGoals(),
+      getSessions(),
+      getActiveSession(),
+    ]);
+    const sessions = includeActiveSession(savedSessions, activeSession);
     const info = getPeriodInfo(tab);
     setPeriodInfo(info);
     setOverview(calcOverview(sessions));
@@ -185,6 +357,38 @@ export default function StatsScreen() {
       .sort((a, b) => b.seconds - a.seconds);
     setStats(rows);
   }
+
+  const openEdit = (goal) => {
+    setEditGoal(goal);
+    setEditSeconds(goal.seconds);
+    setModalVisible(true);
+  };
+
+  const handleSaveTime = async (goalId, newTotalSeconds) => {
+    setModalVisible(false);
+    const sessions = await getSessions();
+    const info = periodInfo;
+
+    const kept = sessions.filter(sess => {
+      if (sess.goalId !== goalId) return true;
+      return sess.endTime < info.start || sess.startTime > info.end;
+    });
+
+    if (newTotalSeconds > 0) {
+      const endTime = Math.min(Date.now(), info.end);
+      const startTime = Math.max(endTime - newTotalSeconds * 1000, info.start);
+      kept.push({
+        id: `manual_${goalId}_${Date.now()}`,
+        goalId,
+        startTime,
+        endTime,
+        duration: newTotalSeconds,
+      });
+    }
+
+    await saveSessions(kept);
+    await loadStats(activeTab);
+  };
 
   const untrackedSecs = Math.max(0, periodInfo.totalSeconds - totalTracked);
   const untrackedPct = periodInfo.totalSeconds > 0 ? (untrackedSecs / periodInfo.totalSeconds) * 100 : 100;
@@ -265,7 +469,7 @@ export default function StatsScreen() {
           </View>
         </View>
 
-        {chartData && chartData.hasData && (
+        {chartData && chartData.datasets.length > 0 && (
           <View style={s.chartCard}>
             <Text style={s.sectionLabel}>HISTORY</Text>
             <View style={s.chartLegend}>
@@ -280,12 +484,12 @@ export default function StatsScreen() {
               data={{ labels: chartData.labels, datasets: chartData.datasets }}
               width={SCREEN_W - 48}
               height={200}
-              yAxisSuffix="h"
+              yAxisSuffix={chartData.unit}
               chartConfig={{
                 backgroundColor: '#141414',
                 backgroundGradientFrom: '#141414',
                 backgroundGradientTo: '#141414',
-                decimalPlaces: 0,
+                decimalPlaces: chartData.decimalPlaces,
                 color: (opacity = 1) => `rgba(255,255,255,${opacity})`,
                 labelColor: () => '#555',
                 propsForDotProps: { r: '3' },
@@ -302,20 +506,24 @@ export default function StatsScreen() {
           </View>
         )}
 
-        <Text style={[s.sectionLabel, { marginTop: 8 }]}>BREAKDOWN</Text>
+        <View style={s.sectionRow}>
+          <Text style={s.sectionRowLabel}>BREAKDOWN</Text>
+          <Text style={s.tapHint}>tap to edit</Text>
+        </View>
 
         {stats.map(g => (
-          <View key={g.id} style={s.goalCard}>
+          <TouchableOpacity key={g.id} style={s.goalCard} onPress={() => openEdit(g)} activeOpacity={0.72}>
             <View style={s.goalCardHeader}>
               <View style={[s.goalDot, { backgroundColor: g.color }]} />
               <Text style={s.goalCardName}>{g.name}</Text>
               <Text style={s.goalCardTime}>{fmtDuration(g.seconds)}</Text>
               <Text style={[s.goalCardPct, { color: g.color }]}>{fmtPct(g.pctOfTotal)}</Text>
+              <Text style={[s.editHint, { color: g.color }]}>Edit</Text>
             </View>
             <View style={s.barTrack}>
-              <View style={[s.barFill, { width: `${Math.min(100, g.pctOfTotal)}%`, backgroundColor: g.color }]} />
+              <View style={[s.barFill, { width: `${Math.max(0, Math.min(100, g.pctOfTotal))}%`, backgroundColor: g.color }]} />
             </View>
-          </View>
+          </TouchableOpacity>
         ))}
 
         <View style={[s.goalCard, { opacity: 0.6 }]}>
@@ -326,12 +534,21 @@ export default function StatsScreen() {
             <Text style={[s.goalCardPct, { color: '#444' }]}>{fmtPct(untrackedPct)}</Text>
           </View>
           <View style={s.barTrack}>
-            <View style={[s.barFill, { width: `${Math.min(100, untrackedPct)}%`, backgroundColor: '#333' }]} />
+            <View style={[s.barFill, { width: `${Math.max(0, Math.min(100, untrackedPct))}%`, backgroundColor: '#333' }]} />
           </View>
         </View>
 
         <Text style={s.footnote}>Period total: {fmtDuration(periodInfo.totalSeconds)}</Text>
       </ScrollView>
+
+      <EditTimeModal
+        visible={modalVisible}
+        goal={editGoal}
+        currentSeconds={editSeconds}
+        periodInfo={periodInfo}
+        onSave={handleSaveTime}
+        onClose={() => setModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -368,14 +585,83 @@ const s = StyleSheet.create({
   chartLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   chartLegendLine: { width: 18, height: 2, borderRadius: 1 },
   chartLegendText: { fontSize: 11, color: '#666' },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 10, marginLeft: 2 },
   sectionLabel: { fontSize: 10, fontWeight: '700', color: '#333', letterSpacing: 1.5, marginBottom: 10, marginLeft: 2 },
+  sectionRowLabel: { fontSize: 10, fontWeight: '700', color: '#333', letterSpacing: 1.5 },
+  tapHint: { fontSize: 10, color: '#2a2a2a', marginLeft: 8 },
   goalCard: { backgroundColor: '#141414', borderRadius: 14, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#1e1e1e' },
   goalCardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   goalDot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
   goalCardName: { flex: 1, color: '#e0e0e0', fontSize: 14, fontWeight: '700' },
-  goalCardTime: { color: '#666', fontSize: 13, marginRight: 10 },
+  goalCardTime: { color: '#666', fontSize: 13, marginRight: 8 },
   goalCardPct: { fontSize: 13, fontWeight: '700', minWidth: 44, textAlign: 'right' },
+  editHint: { fontSize: 11, marginLeft: 8, fontWeight: '700', opacity: 0.55 },
   barTrack: { height: 6, backgroundColor: '#1e1e1e', borderRadius: 3, overflow: 'hidden' },
   barFill: { height: '100%', borderRadius: 3 },
   footnote: { textAlign: 'center', color: '#2a2a2a', fontSize: 12, marginTop: 20 },
+});
+
+const m = StyleSheet.create({
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000000cc' },
+  centerer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
+
+  card: {
+    width: '100%',
+    backgroundColor: '#161616',
+    borderRadius: 24,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: '#242424',
+    elevation: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.6,
+    shadowRadius: 24,
+  },
+
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 12 },
+  dot: { width: 14, height: 14, borderRadius: 7 },
+  goalName: { fontSize: 18, fontWeight: '800', color: '#f0f0f0', letterSpacing: -0.3 },
+  currentTxt: { fontSize: 12, color: '#444', marginTop: 2 },
+  closeTxt: { fontSize: 20, color: '#3a3a3a', fontWeight: '700', paddingLeft: 8 },
+
+  divider: { height: 1, backgroundColor: '#1e1e1e', marginBottom: 18 },
+  label: { fontSize: 10, fontWeight: '700', color: '#3a3a3a', letterSpacing: 1.5, marginBottom: 14 },
+
+  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
+  inputBlock: { flex: 1, alignItems: 'center', gap: 6 },
+  input: {
+    width: '100%',
+    backgroundColor: '#1c1c1c',
+    color: '#f0f0f0',
+    fontSize: 36,
+    fontWeight: '700',
+    textAlign: 'center',
+    borderRadius: 14,
+    paddingVertical: 14,
+    borderWidth: 2,
+    letterSpacing: 1,
+  },
+  unitLabel: { fontSize: 11, color: '#3a3a3a', fontWeight: '700', letterSpacing: 0.8 },
+  colon: { fontSize: 30, color: '#2a2a2a', fontWeight: '800', marginBottom: 22 },
+
+  preview: {
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+  previewLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1.2 },
+  previewValue: { fontSize: 18, fontWeight: '800' },
+  error: { color: '#f87171', fontSize: 12, textAlign: 'center', marginBottom: 10 },
+
+  btnRow: { flexDirection: 'row', gap: 10, marginTop: 6 },
+  cancelBtn: { flex: 1, backgroundColor: '#1e1e1e', borderRadius: 14, padding: 16, alignItems: 'center' },
+  cancelTxt: { color: '#555', fontWeight: '700', fontSize: 15 },
+  saveBtn: { flex: 2, borderRadius: 14, padding: 16, alignItems: 'center' },
+  saveTxt: { color: '#050f05', fontWeight: '800', fontSize: 15 },
+  hint: { fontSize: 11, color: '#252525', textAlign: 'center', marginTop: 14, lineHeight: 16 },
 });

@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, TouchableOpacity, FlatList, StyleSheet, StatusBar, AppState } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  FlatList,
+  StyleSheet,
+  SafeAreaView,
+  StatusBar,
+  AppState,
+} from 'react-native';
 import {
   getGoals,
   getSessions,
@@ -55,7 +63,7 @@ function buildFinishedSession(active) {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function TrackerScreen() {
+export default function TrackerScreen({ isActive = true }) {
   const [goals,           setGoals]           = useState([]);
   const [sessions,        setSessions]        = useState([]);
   const [activeSession,   setActiveSession]   = useState(null);
@@ -91,7 +99,14 @@ export default function TrackerScreen() {
 
   useEffect(() => {
     loadAll();
+  }, [loadAll]);
 
+  // Reload goals+sessions every time the screen comes back into focus
+  useEffect(() => {
+    if (isActive) loadAll();
+  }, [isActive]);
+
+  useEffect(() => {
     // ── AppState: recalculate when returning to foreground ────────────────
     const sub = AppState.addEventListener('change', nextState => {
       if (
@@ -332,7 +347,7 @@ const s = StyleSheet.create({
     fontSize:     26,
     fontWeight:   '700',
     letterSpacing: 1,
-    
+    fontVariant:  ['tabular-nums'],
   },
 
   actionBtn: {
