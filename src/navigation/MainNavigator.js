@@ -3,6 +3,7 @@ import { Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import TrackerScreen from '../screens/TrackerScreen';
 import StatsScreen   from '../screens/StatsScreen';
+import DataScreen    from '../screens/DataScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -27,6 +28,7 @@ export default function MainNavigator() {
         tabBarInactiveTintColor: '#333',
         tabBarLabelStyle: {
           fontSize:   11,
+          fontWeight: '700',
         },
       }}
     >
@@ -44,6 +46,14 @@ export default function MainNavigator() {
         options={{
           tabBarLabel: 'Stats',
           tabBarIcon:  ({ color }) => <Icon glyph="📊" color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="Data"
+        component={DataScreen}
+        options={{
+          tabBarLabel: 'Data',
+          tabBarIcon:  ({ color }) => <Icon glyph="💾" color={color} />,
         }}
       />
     </Tab.Navigator>
