@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, ActivityIndicator, StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { getGoals } from './src/storage';
+import { getSetupDone } from './src/storage';
 import SetupScreen from './src/screens/SetupScreen';
 import AppShell    from './src/components/AppShell';
 
@@ -15,8 +15,7 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const goals = await getGoals();
-        setSetupDone(goals.length > 0);
+        setSetupDone(await getSetupDone());
       } catch (e) {
         // If storage fails, show setup
         setSetupDone(false);

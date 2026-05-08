@@ -12,7 +12,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { saveGoals } from '../storage';
+import { getGoals, saveGoals, saveSetupDone } from '../storage';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -45,23 +45,27 @@ export default function SetupScreen({ onComplete }) {
 
   // ── Add / Update ─────────────────────────────────────────────────────────
 
-  const submitGoal = () => {
+  const persistGoals = async (updated) => {
+    setGoals(updated);
+    await saveGoals(updated);
+  };
+
+  const submitGoal = async () => {
     const name = goalName.trim();
     if (!name) return;
 
+    let updated;
     if (editingId) {
-      setGoals(prev =>
-        prev.map(g => g.id === editingId ? { ...g, name, color: pickedColor } : g)
-      );
+      updated = goals.map(g => (
+        g.id === editingId ? { ...g, name, color: pickedColor } : g
+      ));
       setEditingId(null);
     } else {
-      setGoals(prev => [
-        ...prev,
-        { id: String(Date.now()), name, color: pickedColor },
-      ]);
+      updated = [...goals, { id: String(Date.now()), name, color: pickedColor }];
     }
     setGoalName('');
     setPickedColor(PALETTE[0]);
+    await persistGoals(updated);
   };
 
   const startEdit = (goal) => {
@@ -76,19 +80,24 @@ export default function SetupScreen({ onComplete }) {
     setPickedColor(PALETTE[0]);
   };
 
-  const deleteGoal = (id) => {
-    setGoals(prev => prev.filter(g => g.id !== id));
+  const deleteGoal = async (id) => {
+    const updated = goals.filter(g => g.id !== id);
     if (editingId === id) cancelEdit();
+    await persistGoals(updated);
   };
 
   // ── Save & navigate ───────────────────────────────────────────────────────
 
   const handleStart = async () => {
-    if (goals.length === 0) {
+    const latestGoals = await getGoals();
+    const goalsToSave = latestGoals.length > 0 ? latestGoals : goals;
+
+    if (goalsToSave.length === 0) {
       Alert.alert('No goals', 'Add at least one goal before you start.');
       return;
     }
-    await saveGoals(goals);
+    await saveGoals(goalsToSave);
+    await saveSetupDone(true);
     onComplete();
   };
 
@@ -103,7 +112,7 @@ export default function SetupScreen({ onComplete }) {
       >
         <ScrollView
           contentContainerStyle={s.scroll}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
           {/* ── Header ── */}

@@ -4,6 +4,7 @@ const KEYS = {
   GOALS: '@tt_goals',
   SESSIONS: '@tt_sessions',
   ACTIVE_SESSION: '@tt_active_session',
+  SETUP_DONE: '@tt_setup_done',
 };
 
 // ─── Goals ───────────────────────────────────────────────────────────────────
@@ -53,6 +54,19 @@ export async function saveActiveSession(session) {
   } else {
     await AsyncStorage.setItem(KEYS.ACTIVE_SESSION, JSON.stringify(session));
   }
+}
+
+export async function getSetupDone() {
+  try {
+    const raw = await AsyncStorage.getItem(KEYS.SETUP_DONE);
+    return raw === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export async function saveSetupDone(done) {
+  await AsyncStorage.setItem(KEYS.SETUP_DONE, done ? 'true' : 'false');
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

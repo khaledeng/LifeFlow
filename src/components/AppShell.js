@@ -21,9 +21,13 @@ const { width: SCREEN_W } = Dimensions.get('window');
 const DRAWER_W = Math.min(SCREEN_W * 0.78, 300);
 
 // ─── Nav items ────────────────────────────────────────────────────────────────
-const NAV_ITEMS = [
+const FOOTER_ITEMS = [
   { key: 'tracker', label: 'Tracker',    icon: '⏱',  desc: 'Start & stop your goals' },
   { key: 'stats',   label: 'Statistics', icon: '📊',  desc: 'See your time breakdown' },
+];
+
+const NAV_ITEMS = [
+  ...FOOTER_ITEMS,
   { key: 'goals',   label: 'Your Goals', icon: '🎯',  desc: 'Manage what you track' },
   { key: 'data',    label: 'Data',       icon: '💾',  desc: 'Backup & restore' },
 ];
@@ -75,6 +79,14 @@ export default function AppShell() {
 
   const navigateTo = (key) => {
     closeDrawer(() => setActiveScreen(key));
+  };
+
+  const switchFooterTab = (key) => {
+    if (drawerOpen) {
+      closeDrawer(() => setActiveScreen(key));
+      return;
+    }
+    setActiveScreen(key);
   };
 
   // ── Current nav item meta ──────────────────────────────────────────────────
@@ -135,6 +147,23 @@ export default function AppShell() {
       {/* ── Screen content ── */}
       <View style={s.content}>
         {renderScreen()}
+      </View>
+
+      <View style={s.footerTabs}>
+        {FOOTER_ITEMS.map(item => {
+          const isActive = activeScreen === item.key;
+          return (
+            <TouchableOpacity
+              key={item.key}
+              style={s.footerTab}
+              onPress={() => switchFooterTab(item.key)}
+              activeOpacity={0.75}
+            >
+              <Text style={[s.footerIcon, isActive && s.footerIconActive]}>{item.icon}</Text>
+              <Text style={[s.footerLabel, isActive && s.footerLabelActive]}>{item.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {/* ── Drawer overlay ── */}
@@ -211,9 +240,10 @@ const s = StyleSheet.create({
     flexDirection:   'row',
     alignItems:      'center',
     paddingHorizontal: 16,
-    paddingVertical:  12,
+    paddingTop:      22,
+    paddingBottom:   12,
   },
-  burgerBtn:   { padding: 4, gap: 5, justifyContent: 'center' },
+  burgerBtn:   { padding: 4, gap: 5, justifyContent: 'center', marginTop: 4 },
   burgerLine:  { width: 22, height: 2, backgroundColor: '#f0f0f0', borderRadius: 2 },
   burgerSpacer:{ width: 30 },
 
@@ -226,6 +256,26 @@ const s = StyleSheet.create({
   },
   topBarIcon:  { fontSize: 18 },
   topBarTitle: { fontSize: 16, fontWeight: '700', color: '#f0f0f0', letterSpacing: 0.2 },
+
+  footerTabs: {
+    flexDirection: 'row',
+    backgroundColor: '#111111',
+    borderTopWidth: 1,
+    borderTopColor: '#1e1e1e',
+    paddingTop: 6,
+    paddingBottom: Platform.OS === 'ios' ? 22 : 10,
+    minHeight: Platform.OS === 'ios' ? 74 : 62,
+  },
+  footerTab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  footerIcon: { fontSize: 21, color: '#333' },
+  footerIconActive: { color: '#4ade80' },
+  footerLabel: { fontSize: 11, fontWeight: '700', color: '#333' },
+  footerLabelActive: { color: '#4ade80' },
 
   // ── Backdrop ──
   backdrop: {

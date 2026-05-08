@@ -6,7 +6,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getGoals, getSessions, getActiveSession,
-  saveGoals, saveSessions, saveActiveSession,
+  saveGoals, saveSessions, saveActiveSession, saveSetupDone,
 } from '../storage';
 
 const BACKUP_VERSION = 1;
@@ -56,7 +56,7 @@ async function doExport(json, fileName) {
   const FS      = require('expo-file-system');
   const Sharing = require('expo-sharing');
   const uri     = FS.documentDirectory + fileName;
-  await FS.writeAsStringAsync(uri, json, { encoding: FS.EncodingType.UTF8 });
+  await FS.writeAsStringAsync(uri, json);
   const info = await FS.getInfoAsync(uri);
   if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing not available.');
   await Sharing.shareAsync(uri, { mimeType: 'application/json', dialogTitle: 'Save backup' });
@@ -89,7 +89,7 @@ function doImport() {
     const result = await DP.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
     if (result.canceled) throw new Error('cancelled');
     const file    = result.assets?.[0] ?? result;
-    const content = await FS.readAsStringAsync(file.uri, { encoding: FS.EncodingType.UTF8 });
+    const content = await FS.readAsStringAsync(file.uri);
     return { name: file.name, content };
   })();
 }
@@ -186,6 +186,7 @@ export default function DataScreen({ isActive = true }) {
       await saveGoals(payload.goals);
       await saveSessions(payload.sessions);
       await saveActiveSession(payload.activeSession ?? null);
+      await saveSetupDone(payload.goals.length > 0);
       await loadStats();
 
       addLog(`✓ Restored: ${goalCount} goals, ${sessionCount} sessions`, 'success');

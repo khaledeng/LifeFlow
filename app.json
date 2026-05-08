@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "LifeFlow",
-    "slug": "LifeFlow",
+    "slug": "TimeTracker",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -33,6 +33,7 @@
       "eas": {
         "projectId": "563a2a4f-f795-4dbf-8da1-8f51cf63fb90"
       }
-    }
+    },
+    "owner": "engkhaled"
   }
 }
