@@ -10,13 +10,14 @@ import {
   AppState,
 } from 'react-native';
 import {
-  getGoals,
-  getSessions,
-  saveSessions,
-  getActiveSession,
-  saveActiveSession,
   getTodayStart,
 } from '../storage';
+import {
+  getTrackingSnapshot,
+  startGoal as startTrackingGoal,
+  stopGoal as stopTrackingGoal,
+  subscribeTrackingChanges,
+} from '../trackingService';
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -49,18 +50,6 @@ function computeTodayTotals(sessions, goals) {
   return totals;
 }
 
-/** Finish the in-flight active session and return the completed session object. */
-function buildFinishedSession(active) {
-  const endTime = Date.now();
-  return {
-    id: `${endTime}_${active.goalId}`,
-    goalId:    active.goalId,
-    startTime: active.startTime,
-    endTime,
-    duration:  Math.floor((endTime - active.startTime) / 1000),
-  };
-}
-
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function TrackerScreen({ isActive = true }) {
@@ -72,39 +61,40 @@ export default function TrackerScreen({ isActive = true }) {
 
   // Refs so closures (interval, AppState handler) always see latest values
   const activeSessionRef = useRef(null);
-  const goalsRef         = useRef([]);
-  const sessionsRef      = useRef([]);
   const intervalRef      = useRef(null);
   const appStateRef      = useRef(AppState.currentState);
 
   // Keep refs in sync with state
   useEffect(() => { activeSessionRef.current = activeSession; }, [activeSession]);
-  useEffect(() => { goalsRef.current = goals; },               [goals]);
-  useEffect(() => { sessionsRef.current = sessions; },         [sessions]);
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
 
-  const loadAll = useCallback(async () => {
-    const [g, s, a] = await Promise.all([
-      getGoals(),
-      getSessions(),
-      getActiveSession(),
-    ]);
-    setGoals(g);
-    setSessions(s);
-    setActiveSession(a);
-    setTodayTotals(computeTodayTotals(s, g));
-    setCurrentElapsed(a ? Math.floor((Date.now() - a.startTime) / 1000) : 0);
+  const applyTrackingSnapshot = useCallback((snapshot) => {
+    setGoals(snapshot.goals);
+    setSessions(snapshot.sessions);
+    setActiveSession(snapshot.activeSession);
+    setTodayTotals(computeTodayTotals(snapshot.sessions, snapshot.goals));
+    setCurrentElapsed(
+      snapshot.activeSession
+        ? Math.floor((Date.now() - snapshot.activeSession.startTime) / 1000)
+        : 0
+    );
   }, []);
+
+  const loadAll = useCallback(async () => {
+    applyTrackingSnapshot(await getTrackingSnapshot());
+  }, [applyTrackingSnapshot]);
 
   useEffect(() => {
     loadAll();
   }, [loadAll]);
 
+  useEffect(() => subscribeTrackingChanges(applyTrackingSnapshot), [applyTrackingSnapshot]);
+
   // Reload goals+sessions every time the screen comes back into focus
   useEffect(() => {
     if (isActive) loadAll();
-  }, [isActive]);
+  }, [isActive, loadAll]);
 
   useEffect(() => {
     // ── AppState: recalculate when returning to foreground ────────────────
@@ -113,11 +103,8 @@ export default function TrackerScreen({ isActive = true }) {
         appStateRef.current.match(/inactive|background/) &&
         nextState === 'active'
       ) {
-        // Recalculate elapsed from stored timestamp — no drift possible
-        const active = activeSessionRef.current;
-        if (active) {
-          setCurrentElapsed(Math.floor((Date.now() - active.startTime) / 1000));
-        }
+        // Reload persisted state after background notification actions.
+        loadAll();
       }
       appStateRef.current = nextState;
     });
@@ -154,37 +141,11 @@ export default function TrackerScreen({ isActive = true }) {
   // ── Actions ───────────────────────────────────────────────────────────────
 
   const startGoal = async (goalId) => {
-    let updatedSessions = [...sessionsRef.current];
-
-    // Stop whatever is running first
-    if (activeSessionRef.current) {
-      const finished = buildFinishedSession(activeSessionRef.current);
-      updatedSessions = [...updatedSessions, finished];
-      await saveSessions(updatedSessions);
-      setSessions(updatedSessions);
-    }
-
-    const newActive = { goalId, startTime: Date.now() };
-    await saveActiveSession(newActive);
-    setActiveSession(newActive);
-    setCurrentElapsed(0);
-    setTodayTotals(computeTodayTotals(updatedSessions, goalsRef.current));
+    await startTrackingGoal(goalId);
   };
 
   const stopGoal = async () => {
-    const active = activeSessionRef.current;
-    if (!active) return;
-
-    const finished = buildFinishedSession(active);
-    const updatedSessions = [...sessionsRef.current, finished];
-
-    await saveSessions(updatedSessions);
-    await saveActiveSession(null);
-
-    setSessions(updatedSessions);
-    setActiveSession(null);
-    setCurrentElapsed(0);
-    setTodayTotals(computeTodayTotals(updatedSessions, goalsRef.current));
+    await stopTrackingGoal();
   };
 
   // ── Display helpers ───────────────────────────────────────────────────────
