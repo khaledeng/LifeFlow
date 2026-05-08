@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
   StatusBar,
   Dimensions,
   Platform,
+  BackHandler,
+  ToastAndroid,
 } from 'react-native';
 
 import TrackerScreen from '../screens/TrackerScreen';
@@ -39,6 +41,7 @@ export default function AppShell() {
 
   const translateX  = useRef(new Animated.Value(-DRAWER_W)).current;
   const backdropOpa = useRef(new Animated.Value(0)).current;
+  const lastBackTap = useRef(0);
 
   // ── Drawer animations ──────────────────────────────────────────────────────
   const openDrawer = useCallback(() => {
@@ -91,6 +94,33 @@ export default function AppShell() {
 
   // ── Current nav item meta ──────────────────────────────────────────────────
   const current = NAV_ITEMS.find(n => n.key === activeScreen);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (drawerOpen) {
+        closeDrawer();
+        return true;
+      }
+
+      if (activeScreen !== 'tracker') {
+        setActiveScreen('tracker');
+        return true;
+      }
+
+      const now = Date.now();
+      if (now - lastBackTap.current < 1600) {
+        return false;
+      }
+
+      lastBackTap.current = now;
+      ToastAndroid.show('Press back again to exit', ToastAndroid.SHORT);
+      return true;
+    });
+
+    return () => sub.remove();
+  }, [activeScreen, drawerOpen, closeDrawer]);
 
   // ── Render screen ──────────────────────────────────────────────────────────
   const renderScreen = () => {
@@ -240,10 +270,10 @@ const s = StyleSheet.create({
     flexDirection:   'row',
     alignItems:      'center',
     paddingHorizontal: 16,
-    paddingTop:      22,
+    paddingTop:      30,
     paddingBottom:   12,
   },
-  burgerBtn:   { padding: 4, gap: 5, justifyContent: 'center', marginTop: 4 },
+  burgerBtn:   { padding: 4, gap: 5, justifyContent: 'center', marginTop: 8 },
   burgerLine:  { width: 22, height: 2, backgroundColor: '#f0f0f0', borderRadius: 2 },
   burgerSpacer:{ width: 30 },
 

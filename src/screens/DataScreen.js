@@ -53,7 +53,7 @@ async function doExport(json, fileName) {
     URL.revokeObjectURL(url);
     return new Blob([json]).size;
   }
-  const FS      = require('expo-file-system');
+  const FS      = require('expo-file-system/legacy');
   const Sharing = require('expo-sharing');
   const uri     = FS.documentDirectory + fileName;
   await FS.writeAsStringAsync(uri, json);
@@ -85,7 +85,7 @@ function doImport() {
   }
   return (async () => {
     const DP = require('expo-document-picker');
-    const FS = require('expo-file-system');
+    const FS = require('expo-file-system/legacy');
     const result = await DP.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
     if (result.canceled) throw new Error('cancelled');
     const file    = result.assets?.[0] ?? result;
