@@ -64,6 +64,15 @@ async function startGoalFromSnapshot(snapshot, goalId) {
 
   let updatedSessions = [...snapshot.sessions];
 
+  const activeSession = {
+    goalId,
+    startTime: Date.now(),
+  };
+
+  // Write new activeSession first. If we crash after this but before saveSessions,
+  // the old session is orphaned (no endTime) rather than duplicated.
+  await saveActiveSession(activeSession);
+
   if (snapshot.activeSession) {
     updatedSessions = [
       ...updatedSessions,
@@ -71,13 +80,6 @@ async function startGoalFromSnapshot(snapshot, goalId) {
     ];
     await saveSessions(updatedSessions);
   }
-
-  const activeSession = {
-    goalId,
-    startTime: Date.now(),
-  };
-
-  await saveActiveSession(activeSession);
 
   return buildSnapshot(snapshot.goals, updatedSessions, activeSession);
 }

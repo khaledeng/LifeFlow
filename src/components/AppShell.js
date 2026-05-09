@@ -14,6 +14,7 @@ import {
   ToastAndroid,
   ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import TrackerScreen from '../screens/TrackerScreen';
 const StatsScreen = React.lazy(() => import('../screens/StatsScreen'));
@@ -40,6 +41,7 @@ const NAV_ITEMS = [
 export default function AppShell() {
   const [activeScreen, setActiveScreen] = useState('tracker');
   const [drawerOpen,   setDrawerOpen]   = useState(false);
+  const insets = useSafeAreaInsets();
 
   const translateX  = useRef(new Animated.Value(-DRAWER_W)).current;
   const backdropOpa = useRef(new Animated.Value(0)).current;
@@ -191,8 +193,7 @@ export default function AppShell() {
         {renderScreen()}
       </View>
 
-      <View style={s.footerTabs}>
-        {FOOTER_ITEMS.map(item => {
+    <View style={[s.footerTabs, { paddingBottom: Math.max(insets.bottom, 8) }]}>        {FOOTER_ITEMS.map(item => {
           const isActive = activeScreen === item.key;
           return (
             <TouchableOpacity
@@ -305,8 +306,6 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#1e1e1e',
     paddingTop: 6,
-    paddingBottom: Platform.OS === 'ios' ? 22 : 10,
-    minHeight: Platform.OS === 'ios' ? 74 : 62,
   },
   footerTab: {
     flex: 1,

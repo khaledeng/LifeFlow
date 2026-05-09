@@ -15,9 +15,8 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Path, Line, Text as SvgText, Circle } from 'react-native-svg';
+import Svg, { Path, Line, Text as SvgText, Circle ,Rect} from 'react-native-svg';
 import { getActiveSession, getGoals, getSessions, saveSessions } from '../storage';
-
 const SCREEN_W = Dimensions.get('window').width;
 const TABS = ['Day', 'Week', 'Month', 'Year'];
 
@@ -68,12 +67,14 @@ function buildPoints(tab) {
   const now = new Date();
   const points = [];
   if (tab === 'Day') {
+    const nowMs = now.getTime();
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(now.getDate() - i);
       d.setHours(0, 0, 0, 0);
       const start = d.getTime();
-      points.push({ label: d.getDate().toString(), start, end: start + 86400000 });
+      const end = i === 0 ? nowMs : start + 86400000;
+      points.push({ label: d.getDate().toString(), start, end });
     }
   } else if (tab === 'Week') {
     for (let i = 7; i >= 0; i--) {
@@ -132,7 +133,9 @@ function buildChartData(tab, sessions, goals) {
 
 // ─── Lightweight SVG Line Chart (Linear, Work-only, neon glow) ───────────────
 
-function SvgLineChart({ data, width, height }) {
+// ─── Tooltip + Interactive SVG Line Chart ────────────────────────────────────
+
+function SvgLineChart({ data, width, height, onPointSelect, selectedPoint }) {
   const pad = { top: 14, right: 12, bottom: 28, left: 46 };
   const chartW = width - pad.left - pad.right;
   const chartH = height - pad.top - pad.bottom;
@@ -142,45 +145,80 @@ function SvgLineChart({ data, width, height }) {
   const allValues = data.datasets.flatMap(ds => ds.data);
   const rawMax = Math.max(...allValues, 0);
 
-  // Build a clean Y-axis: find the nearest nice ceiling
   const niceMax = rawMax <= 0 ? 1 : (() => {
     const candidates = [0.5, 1, 2, 5, 10, 15, 20, 30, 60, 120, 180, 300, 600];
     for (const c of candidates) { if (c >= rawMax) return c; }
     return Math.ceil(rawMax / 60) * 60;
   })();
 
-  const gridSteps = 5; // 0, 0.2, 0.4, 0.6, 0.8, 1.0 of niceMax
-
+  const gridSteps = 5;
   const scaleX = (i) => pad.left + (i / Math.max(data.labels.length - 1, 1)) * chartW;
   const scaleY = (v) => pad.top + chartH - (Math.max(0, v) / niceMax) * chartH;
 
+  // ── Tooltip dimensions ──────────────────────────────────────────────────────
+  const TT_W = 130;
+  const TT_H = 52;
+  const TT_R = 8;
+  const TT_PAD = 8;
+
+  function getTooltipX(cx) {
+    let tx = cx - TT_W / 2;
+    if (tx < pad.left) tx = pad.left;
+    if (tx + TT_W > width - pad.right) tx = width - pad.right - TT_W;
+    return tx;
+  }
+
+  function getTooltipY(cy) {
+    const above = cy - TT_H - 10;
+    return above < 2 ? cy + 14 : above;
+  }
+
+  function fmtTooltip(val) {
+    if (val <= 0) return '0m';
+    if (data.unit === 'h') {
+      const h = Math.floor(val);
+      const m = Math.round((val - h) * 60);
+      if (h > 0 && m > 0) return `${h}h ${m}m`;
+      if (h > 0) return `${h}h`;
+      return `${m}m`;
+    }
+    // unit === 'm'
+    const totalM = Math.round(val);
+    const h = Math.floor(totalM / 60);
+    const m = totalM % 60;
+    if (h > 0 && m > 0) return `${h}h ${m}m`;
+    if (h > 0) return `${h}h`;
+    return `${m}m`;
+  }
+
   return (
     <Svg width={width} height={height}>
-      {/* Glow filter via a slightly offset, blurred duplicate line */}
-
-      {/* Horizontal grid lines + Y-axis labels */}
+      {/* Grid lines + Y labels */}
       {Array.from({ length: gridSteps + 1 }, (_, i) => {
         const y = pad.top + (i / gridSteps) * chartH;
         const val = ((gridSteps - i) / gridSteps) * niceMax;
         const label = val % 1 === 0 ? `${val}` : val.toFixed(1);
         return (
           <React.Fragment key={`grid-${i}`}>
-            <Line x1={pad.left} y1={y} x2={width - pad.right} y2={y}
-              stroke="#1e1e1e" strokeWidth={1} strokeDasharray="5,5" />
-            <SvgText x={pad.left - 6} y={y + 4} fontSize={10}
-              fill="#555" textAnchor="end">
+            <Line
+              x1={pad.left} y1={y}
+              x2={width - pad.right} y2={y}
+              stroke="#1e1e1e" strokeWidth={1} strokeDasharray="5,5"
+            />
+            <SvgText
+              x={pad.left - 6} y={y + 4}
+              fontSize={10} fill="#555" textAnchor="end">
               {label}{data.unit}
             </SvgText>
           </React.Fragment>
         );
       })}
 
-      {/* Data lines — linear interpolation with neon glow */}
+      {/* Data lines */}
       {data.datasets.map((ds, di) => {
-        const pts = ds.data.map((v, i) => ({ x: scaleX(i), y: scaleY(v) }));
-        if (pts.length === 0) return null;
+        const pts = ds.data.map((v, i) => ({ x: scaleX(i), y: scaleY(v), v, i }));
+        if (!pts.length) return null;
 
-        // Build linear path (straight line segments, no curves)
         let d = `M ${pts[0].x},${pts[0].y}`;
         for (let i = 1; i < pts.length; i++) {
           d += ` L ${pts[i].x},${pts[i].y}`;
@@ -188,57 +226,169 @@ function SvgLineChart({ data, width, height }) {
 
         return (
           <React.Fragment key={`ds-${di}`}>
-            {/* Neon glow layer (wider, semi-transparent) */}
-            <Path d={d} fill="none" stroke={ds.color} strokeWidth={8}
-              strokeOpacity={0.15} strokeLinecap="round" strokeLinejoin="round" />
-            <Path d={d} fill="none" stroke={ds.color} strokeWidth={5}
-              strokeOpacity={0.25} strokeLinecap="round" strokeLinejoin="round" />
-            {/* Main line */}
-            <Path d={d} fill="none" stroke={ds.color} strokeWidth={2.5}
+            {/* Glow */}
+            <Path d={d} fill="none" stroke={ds.color}
+              strokeWidth={8} strokeOpacity={0.15}
               strokeLinecap="round" strokeLinejoin="round" />
-            {/* Prominent data dots */}
-            {pts.map((p, i) => (
-              <React.Fragment key={`dot-${di}-${i}`}>
-                {/* Outer glow ring */}
-                <Circle cx={p.x} cy={p.y} r={8}
-                  fill={ds.color} fillOpacity={0.12} />
-                {/* Dot border */}
-                <Circle cx={p.x} cy={p.y} r={5}
-                  fill="#141414" stroke={ds.color} strokeWidth={2.5} />
-                {/* Dot center */}
-                <Circle cx={p.x} cy={p.y} r={2.5}
-                  fill={ds.color} />
-              </React.Fragment>
-            ))}
+            <Path d={d} fill="none" stroke={ds.color}
+              strokeWidth={5} strokeOpacity={0.25}
+              strokeLinecap="round" strokeLinejoin="round" />
+            {/* Main line */}
+            <Path d={d} fill="none" stroke={ds.color}
+              strokeWidth={2.5}
+              strokeLinecap="round" strokeLinejoin="round" />
+            {/* Dots */}
+            {pts.map((p) => {
+              const isSelected =
+                selectedPoint?.dsIndex === di &&
+                selectedPoint?.ptIndex === p.i;
+              return (
+                <React.Fragment key={`dot-${di}-${p.i}`}>
+                  <Circle cx={p.x} cy={p.y} r={isSelected ? 12 : 8}
+                    fill={ds.color} fillOpacity={isSelected ? 0.22 : 0.12} />
+                  <Circle cx={p.x} cy={p.y} r={isSelected ? 7 : 5}
+                    fill="#141414" stroke={ds.color}
+                    strokeWidth={isSelected ? 3 : 2.5} />
+                  <Circle cx={p.x} cy={p.y} r={isSelected ? 3.5 : 2.5}
+                    fill={ds.color} />
+                </React.Fragment>
+              );
+            })}
           </React.Fragment>
         );
       })}
 
-      {/* X-axis labels */}
+      {/* X labels */}
       {data.labels.map((label, i) => (
-        <SvgText key={`lbl-${i}`} x={scaleX(i)} y={height - 6}
+        <SvgText key={`lbl-${i}`}
+          x={scaleX(i)} y={height - 6}
           fontSize={10} fill="#555" textAnchor="middle">
           {label}
         </SvgText>
       ))}
+
+      {/* Invisible touch zones — on top of everything */}
+      {data.datasets.map((ds, di) =>
+        ds.data.map((v, i) => {
+          const cx = scaleX(i);
+          const cy = scaleY(v);
+          const ZONE = 22;
+          return (
+            <Rect
+              key={`touch-${di}-${i}`}
+              x={cx - ZONE} y={cy - ZONE}
+              width={ZONE * 2} height={ZONE * 2}
+              fill="transparent"
+              onPress={() => {
+                const isAlreadySelected =
+                  selectedPoint?.dsIndex === di &&
+                  selectedPoint?.ptIndex === i;
+                onPointSelect(
+                  isAlreadySelected
+                    ? null
+                    : { dsIndex: di, ptIndex: i, cx, cy, value: v, label: data.labels[i] }
+                );
+              }}
+            />
+          );
+        })
+      )}
+
+      {/* Tooltip */}
+      {selectedPoint && (() => {
+        const ds = data.datasets[selectedPoint.dsIndex];
+        const goal = data.goals[selectedPoint.dsIndex];
+        const tx = getTooltipX(selectedPoint.cx);
+        const ty = getTooltipY(selectedPoint.cy);
+        const timeStr = fmtTooltip(selectedPoint.value);
+        const goalName = goal?.name ?? 'Unknown';
+
+        return (
+          <React.Fragment>
+            {/* Shadow layer */}
+            <Rect
+              x={tx + 1} y={ty + 2}
+              width={TT_W} height={TT_H}
+              rx={TT_R} ry={TT_R}
+              fill="#000" fillOpacity={0.35}
+            />
+            {/* Background */}
+            <Rect
+              x={tx} y={ty}
+              width={TT_W} height={TT_H}
+              rx={TT_R} ry={TT_R}
+              fill="#1c1c1c"
+              stroke={ds.color}
+              strokeWidth={1.2}
+              strokeOpacity={0.7}
+            />
+            {/* Color accent bar */}
+            <Rect
+              x={tx} y={ty}
+              width={4} height={TT_H}
+              rx={TT_R} ry={TT_R}
+              fill={ds.color}
+            />
+            {/* Goal name */}
+            <SvgText
+              x={tx + TT_PAD + 8} y={ty + 19}
+              fontSize={11} fill="#aaa"
+              fontWeight="600">
+              {goalName.length > 14 ? goalName.slice(0, 13) + '…' : goalName}
+            </SvgText>
+            {/* Time value */}
+            <SvgText
+              x={tx + TT_PAD + 8} y={ty + 37}
+              fontSize={15} fill="#f0f0f0"
+              fontWeight="800">
+              {timeStr}
+            </SvgText>
+            {/* Period label */}
+            <SvgText
+              x={tx + TT_W - TT_PAD} y={ty + 37}
+              fontSize={10} fill="#555"
+              textAnchor="end">
+              {selectedPoint.label}
+            </SvgText>
+          </React.Fragment>
+        );
+      })()}
     </Svg>
   );
 }
 
 function calcOverview(sessions) {
-  const now = new Date();
+  const now = Date.now();
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const weekStart = new Date(); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0, 0, 0, 0);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const todayStartMs = todayStart.getTime();
+  const weekStart = new Date(); weekStart.setDate(todayStart.getDate() - todayStart.getDay()); weekStart.setHours(0, 0, 0, 0);
+  const weekStartMs = weekStart.getTime();
+  const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+  const monthStartMs = monthStart.getTime();
+
   let today = 0, week = 0, month = 0, total = 0;
+
   sessions.forEach(sess => {
     if (!sess.endTime) return;
-    const dur = Math.floor((sess.endTime - sess.startTime) / 1000);
+    const sessStart = sess.startTime;
+    const sessEnd = Math.min(sess.endTime, now);
+    if (sessEnd <= sessStart) return;
+
+    const dur = Math.floor((sessEnd - sessStart) / 1000);
     total += dur;
-    if (sess.startTime >= monthStart.getTime()) month += dur;
-    if (sess.startTime >= weekStart.getTime()) week += dur;
-    if (sess.startTime >= todayStart.getTime()) today += dur;
+
+    // Clamp to period start so cross-midnight/cross-week sessions are counted correctly
+    if (sessEnd > monthStartMs) {
+      month += Math.floor((sessEnd - Math.max(sessStart, monthStartMs)) / 1000);
+    }
+    if (sessEnd > weekStartMs) {
+      week += Math.floor((sessEnd - Math.max(sessStart, weekStartMs)) / 1000);
+    }
+    if (sessEnd > todayStartMs) {
+      today += Math.floor((sessEnd - Math.max(sessStart, todayStartMs)) / 1000);
+    }
   });
+
   return { today, week, month, total };
 }
 
@@ -399,6 +549,8 @@ export default function StatsScreen({ isActive = true }) {
   const [editGoal, setEditGoal] = useState(null);
   const [editSeconds, setEditSeconds] = useState(0);
   const [modalVisible, setModalVisible] = useState(false);
+  const [selectedChartPoint, setSelectedChartPoint] = useState(null);
+
 
   useEffect(() => {
     if (!isActive) return undefined;
@@ -446,13 +598,20 @@ export default function StatsScreen({ isActive = true }) {
     setModalVisible(true);
   };
 
-  const handleSaveTime = async (goalId, newTotalSeconds) => {
+const handleSaveTime = async (goalId, newTotalSeconds) => {
     setModalVisible(false);
-    const sessions = await getSessions();
-    const info = periodInfo;
+    const [sessions, activeSession] = await Promise.all([getSessions(), getActiveSession()]);
+    const info = getPeriodInfo(activeTab); // always fresh, not stale state
+
+    // If zeroing out a goal that is currently active, stop it first
+    if (newTotalSeconds === 0 && activeSession?.goalId === goalId) {
+      const { stopGoal } = require('../trackingService');
+      await stopGoal();
+    }
 
     const kept = sessions.filter(sess => {
       if (sess.goalId !== goalId) return true;
+      if (sess.endTime == null) return true; // never drop sessions without endTime
       return sess.endTime < info.start || sess.startTime > info.end;
     });
 
@@ -509,12 +668,22 @@ export default function StatsScreen({ isActive = true }) {
       </View>
 
       <View style={s.tabRow}>
-        {TABS.map(t => (
-          <TouchableOpacity key={t} style={[s.tab, activeTab === t && s.tabActive]} onPress={() => setActiveTab(t)} activeOpacity={0.8}>
-            <Text style={[s.tabText, activeTab === t && s.tabTextActive]}>{t}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+  {TABS.map(t => (
+    <TouchableOpacity
+      key={t}
+      style={[s.tab, activeTab === t && s.tabActive]}
+      onPress={() => {
+        setActiveTab(t);
+        setSelectedChartPoint(null);
+      }}
+      activeOpacity={0.8}
+    >
+      <Text style={[s.tabText, activeTab === t && s.tabTextActive]}>
+        {t}
+      </Text>
+    </TouchableOpacity>
+  ))}
+  </View>
 
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
 
@@ -562,12 +731,18 @@ export default function StatsScreen({ isActive = true }) {
                 </View>
               ))}
             </View>
-            <SvgLineChart
-              data={chartData}
-              width={SCREEN_W - 48}
-              height={200}
-            />
-          </View>
+      <TouchableWithoutFeedback onPress={() => setSelectedChartPoint(null)}>
+        <View>
+          <SvgLineChart
+            data={chartData}
+            width={SCREEN_W - 48}
+            height={200}
+            selectedPoint={selectedChartPoint}
+            onPointSelect={setSelectedChartPoint}
+          />
+        </View>
+      </TouchableWithoutFeedback>
+      </View>
         )}
 
         <View style={s.sectionRow}>

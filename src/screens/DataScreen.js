@@ -183,9 +183,29 @@ export default function DataScreen({ isActive = true }) {
       addLog(`Found ${goalCount} goals, ${sessionCount} sessions (${backupDate})`);
       await confirmReplace(goalCount, sessionCount, backupDate);
 
+      const normalizedSessions = payload.sessions.map(s => ({
+        ...s,
+        startTime: Number(s.startTime),
+        endTime:   s.endTime != null ? Number(s.endTime) : null,
+        duration:  s.duration != null ? Number(s.duration) : null,
+      })).filter(s => Number.isFinite(s.startTime) && s.startTime > 0);
+
+      const normalizedActive = payload.activeSession
+        ? {
+            ...payload.activeSession,
+            startTime: Number(payload.activeSession.startTime),
+          }
+        : null;
+
+      // If restored active session's startTime is in the future (clock skew / corrupt),
+      // discard it to avoid negative elapsed times.
+      const safeActive = normalizedActive && normalizedActive.startTime <= Date.now()
+        ? normalizedActive
+        : null;
+
       await saveGoals(payload.goals);
-      await saveSessions(payload.sessions);
-      await saveActiveSession(payload.activeSession ?? null);
+      await saveSessions(normalizedSessions);
+      await saveActiveSession(safeActive);
       await saveSetupDone(payload.goals.length > 0);
       await loadStats();
 

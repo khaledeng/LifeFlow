@@ -70,14 +70,14 @@ export default function TrackerScreen({ isActive = true }) {
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
 
-  const applyTrackingSnapshot = useCallback((snapshot) => {
+const applyTrackingSnapshot = useCallback((snapshot) => {
     setGoals(snapshot.goals);
     setSessions(snapshot.sessions);
     setActiveSession(snapshot.activeSession);
     setTodayTotals(computeTodayTotals(snapshot.sessions, snapshot.goals));
     setCurrentElapsed(
       snapshot.activeSession
-        ? Math.floor((Date.now() - snapshot.activeSession.startTime) / 1000)
+        ? Math.floor((Date.now() - Math.max(snapshot.activeSession.startTime, getTodayStart())) / 1000)
         : 0
     );
   }, []);
@@ -124,7 +124,7 @@ export default function TrackerScreen({ isActive = true }) {
       intervalRef.current = setInterval(() => {
         const active = activeSessionRef.current;
         if (active) {
-          setCurrentElapsed(Math.floor((Date.now() - active.startTime) / 1000));
+          setCurrentElapsed(Math.floor((Date.now() - Math.max(active.startTime, getTodayStart())) / 1000));
         }
       }, 1000);
     } else {
