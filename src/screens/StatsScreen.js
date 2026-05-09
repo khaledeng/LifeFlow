@@ -15,7 +15,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LineChart } from 'react-native-chart-kit';
+import Svg, { Path, Line, Text as SvgText, Circle } from 'react-native-svg';
 import { getActiveSession, getGoals, getSessions, saveSessions } from '../storage';
 
 const SCREEN_W = Dimensions.get('window').width;
@@ -99,14 +99,6 @@ function buildPoints(tab) {
   return points;
 }
 
-function hexToRgb(hex) {
-  const h = hex.replace('#', '');
-  const r = parseInt(h.substring(0, 2), 16);
-  const g = parseInt(h.substring(2, 4), 16);
-  const b = parseInt(h.substring(4, 6), 16);
-  return { r, g, b };
-}
-
 function buildChartData(tab, sessions, goals) {
   const points = buildPoints(tab);
 
@@ -129,18 +121,108 @@ function buildChartData(tab, sessions, goals) {
   const useMinutes = maxSeconds < 3600;
   const unit = useMinutes ? 'm' : 'h';
   const divisor = useMinutes ? 60 : 3600;
-  const decimalPlaces = useMinutes ? 0 : 1;
 
-  const datasets = rawDatasets.map(({ goal, data }) => {
-    const { r, g, b } = hexToRgb(goal.color);
-    return {
-      data: data.map(total => Math.round((total / divisor) * 10) / 10),
-      color: (opacity = 1) => `rgba(${r}, ${g}, ${b}, ${opacity})`,
-      strokeWidth: 2,
-    };
-  });
+  const datasets = rawDatasets.map(({ goal, data }) => ({
+    data: data.map(total => Math.max(0, Math.round((total / divisor) * 10) / 10)),
+    color: goal.color,
+  }));
 
-  return { labels: points.map(p => p.label), datasets, goals, unit, decimalPlaces };
+  return { labels: points.map(p => p.label), datasets, goals, unit };
+}
+
+// ─── Lightweight SVG Line Chart (Linear, Work-only, neon glow) ───────────────
+
+function SvgLineChart({ data, width, height }) {
+  const pad = { top: 14, right: 12, bottom: 28, left: 46 };
+  const chartW = width - pad.left - pad.right;
+  const chartH = height - pad.top - pad.bottom;
+
+  if (!data || !data.datasets.length) return null;
+
+  const allValues = data.datasets.flatMap(ds => ds.data);
+  const rawMax = Math.max(...allValues, 0);
+
+  // Build a clean Y-axis: find the nearest nice ceiling
+  const niceMax = rawMax <= 0 ? 1 : (() => {
+    const candidates = [0.5, 1, 2, 5, 10, 15, 20, 30, 60, 120, 180, 300, 600];
+    for (const c of candidates) { if (c >= rawMax) return c; }
+    return Math.ceil(rawMax / 60) * 60;
+  })();
+
+  const gridSteps = 5; // 0, 0.2, 0.4, 0.6, 0.8, 1.0 of niceMax
+
+  const scaleX = (i) => pad.left + (i / Math.max(data.labels.length - 1, 1)) * chartW;
+  const scaleY = (v) => pad.top + chartH - (Math.max(0, v) / niceMax) * chartH;
+
+  return (
+    <Svg width={width} height={height}>
+      {/* Glow filter via a slightly offset, blurred duplicate line */}
+
+      {/* Horizontal grid lines + Y-axis labels */}
+      {Array.from({ length: gridSteps + 1 }, (_, i) => {
+        const y = pad.top + (i / gridSteps) * chartH;
+        const val = ((gridSteps - i) / gridSteps) * niceMax;
+        const label = val % 1 === 0 ? `${val}` : val.toFixed(1);
+        return (
+          <React.Fragment key={`grid-${i}`}>
+            <Line x1={pad.left} y1={y} x2={width - pad.right} y2={y}
+              stroke="#1e1e1e" strokeWidth={1} strokeDasharray="5,5" />
+            <SvgText x={pad.left - 6} y={y + 4} fontSize={10}
+              fill="#555" textAnchor="end">
+              {label}{data.unit}
+            </SvgText>
+          </React.Fragment>
+        );
+      })}
+
+      {/* Data lines — linear interpolation with neon glow */}
+      {data.datasets.map((ds, di) => {
+        const pts = ds.data.map((v, i) => ({ x: scaleX(i), y: scaleY(v) }));
+        if (pts.length === 0) return null;
+
+        // Build linear path (straight line segments, no curves)
+        let d = `M ${pts[0].x},${pts[0].y}`;
+        for (let i = 1; i < pts.length; i++) {
+          d += ` L ${pts[i].x},${pts[i].y}`;
+        }
+
+        return (
+          <React.Fragment key={`ds-${di}`}>
+            {/* Neon glow layer (wider, semi-transparent) */}
+            <Path d={d} fill="none" stroke={ds.color} strokeWidth={8}
+              strokeOpacity={0.15} strokeLinecap="round" strokeLinejoin="round" />
+            <Path d={d} fill="none" stroke={ds.color} strokeWidth={5}
+              strokeOpacity={0.25} strokeLinecap="round" strokeLinejoin="round" />
+            {/* Main line */}
+            <Path d={d} fill="none" stroke={ds.color} strokeWidth={2.5}
+              strokeLinecap="round" strokeLinejoin="round" />
+            {/* Prominent data dots */}
+            {pts.map((p, i) => (
+              <React.Fragment key={`dot-${di}-${i}`}>
+                {/* Outer glow ring */}
+                <Circle cx={p.x} cy={p.y} r={8}
+                  fill={ds.color} fillOpacity={0.12} />
+                {/* Dot border */}
+                <Circle cx={p.x} cy={p.y} r={5}
+                  fill="#141414" stroke={ds.color} strokeWidth={2.5} />
+                {/* Dot center */}
+                <Circle cx={p.x} cy={p.y} r={2.5}
+                  fill={ds.color} />
+              </React.Fragment>
+            ))}
+          </React.Fragment>
+        );
+      })}
+
+      {/* X-axis labels */}
+      {data.labels.map((label, i) => (
+        <SvgText key={`lbl-${i}`} x={scaleX(i)} y={height - 6}
+          fontSize={10} fill="#555" textAnchor="middle">
+          {label}
+        </SvgText>
+      ))}
+    </Svg>
+  );
 }
 
 function calcOverview(sessions) {
@@ -480,28 +562,10 @@ export default function StatsScreen({ isActive = true }) {
                 </View>
               ))}
             </View>
-            <LineChart
-              data={{ labels: chartData.labels, datasets: chartData.datasets }}
+            <SvgLineChart
+              data={chartData}
               width={SCREEN_W - 48}
               height={200}
-              yAxisSuffix={chartData.unit}
-              chartConfig={{
-                backgroundColor: '#141414',
-                backgroundGradientFrom: '#141414',
-                backgroundGradientTo: '#141414',
-                decimalPlaces: chartData.decimalPlaces,
-                color: (opacity = 1) => `rgba(255,255,255,${opacity})`,
-                labelColor: () => '#555',
-                propsForDotProps: { r: '3' },
-                propsForBackgroundLines: { stroke: '#1e1e1e', strokeDasharray: '5,5' },
-                propsForLabels: { fontSize: 10 },
-              }}
-              withDots={true}
-              withShadow={false}
-              withInnerLines={true}
-              withOuterLines={false}
-              bezier
-              style={{ borderRadius: 8, marginLeft: -10 }}
             />
           </View>
         )}

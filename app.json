@@ -17,7 +17,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/logo.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
@@ -29,7 +29,7 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.webp"
     },
     "plugins": [
       "expo-font",
@@ -37,6 +37,17 @@
         "expo-notifications",
         {
           "color": "#4ade80"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "hermesEnabled": true,
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "useLegacyPackaging": false
+          }
         }
       ]
     ],

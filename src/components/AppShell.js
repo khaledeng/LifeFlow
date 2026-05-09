@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, Suspense } from 'react';
 import {
   View,
   Text,
@@ -12,12 +12,14 @@ import {
   Platform,
   BackHandler,
   ToastAndroid,
+  ActivityIndicator,
 } from 'react-native';
 
 import TrackerScreen from '../screens/TrackerScreen';
-import StatsScreen   from '../screens/StatsScreen';
+const StatsScreen = React.lazy(() => import('../screens/StatsScreen'));
 import GoalsScreen   from '../screens/GoalsScreen';
-import DataScreen    from '../screens/DataScreen';
+const DataScreen = React.lazy(() => import('../screens/DataScreen'));
+
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const DRAWER_W = Math.min(SCREEN_W * 0.78, 300);
@@ -122,6 +124,12 @@ export default function AppShell() {
     return () => sub.remove();
   }, [activeScreen, drawerOpen, closeDrawer]);
 
+  const LazyFallback = (
+    <View style={{ flex: 1, backgroundColor: '#0f0f0f', justifyContent: 'center', alignItems: 'center' }}>
+      <ActivityIndicator size="large" color="#4ade80" />
+    </View>
+  );
+
   // ── Render screen ──────────────────────────────────────────────────────────
   const renderScreen = () => {
     // All screens are mounted to preserve state; hidden via style to avoid re-mounts
@@ -131,13 +139,17 @@ export default function AppShell() {
           <TrackerScreen isActive={activeScreen === 'tracker'} />
         </View>
         <View style={{ flex: 1, display: activeScreen === 'stats' ? 'flex' : 'none' }}>
-          <StatsScreen isActive={activeScreen === 'stats'} />
+          <Suspense fallback={LazyFallback}>
+            <StatsScreen isActive={activeScreen === 'stats'} />
+          </Suspense>
         </View>
         <View style={{ flex: 1, display: activeScreen === 'goals' ? 'flex' : 'none' }}>
           <GoalsScreen isActive={activeScreen === 'goals'} />
         </View>
         <View style={{ flex: 1, display: activeScreen === 'data' ? 'flex' : 'none' }}>
-          <DataScreen isActive={activeScreen === 'data'} />
+          <Suspense fallback={LazyFallback}>
+            <DataScreen isActive={activeScreen === 'data'} />
+          </Suspense>
         </View>
       </>
     );
