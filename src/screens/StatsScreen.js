@@ -67,15 +67,28 @@ function buildPoints(tab) {
   const now = new Date();
   const points = [];
   if (tab === 'Day') {
-    const nowMs = now.getTime();
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(now.getDate() - i);
-      d.setHours(0, 0, 0, 0);
-      const start = d.getTime();
-      const end = i === 0 ? nowMs : start + 86400000;
-      points.push({ label: d.getDate().toString(), start, end });
-    }
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+
+  const nowMs = now.getTime();
+
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+
+    const start = d.getTime();
+
+    const end =
+      i === 0
+        ? nowMs
+        : new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+
+    points.push({
+      label: d.getDate().toString(),
+      start,
+      end,
+    });
+  }
   } else if (tab === 'Week') {
     for (let i = 7; i >= 0; i--) {
       const d = new Date();
@@ -106,13 +119,20 @@ function buildChartData(tab, sessions, goals) {
   const rawDatasets = goals.map(goal => {
     const data = points.map(p => {
       let total = 0;
-      sessions.forEach(sess => {
-        if (sess.goalId !== goal.id || !sess.endTime) return;
-        if (sess.endTime < p.start || sess.startTime > p.end) return;
-        const cs = Math.max(sess.startTime, p.start);
-        const ce = Math.min(sess.endTime, p.end);
-        total += Math.floor((ce - cs) / 1000);
-      });
+    sessions.forEach(sess => {
+  if (sess.goalId !== goal.id || !sess.endTime) return;
+if (sess.endTime <= p.start || sess.startTime >= p.end) return;
+  // Manual sessions store ground-truth duration; use it directly,
+  // same as loadStats does. Computing from timestamps clips the value
+  // to the elapsed portion of the period window (critical for Day tab).
+  if (sess.id?.startsWith('manual_')) {
+    total += sess.duration ?? 0;
+    return;
+  }
+  const cs = Math.max(sess.startTime, p.start);
+  const ce = Math.min(sess.endTime, p.end);
+  total += Math.floor((ce - cs) / 1000);
+});
       return total;
     });
     return { goal, data };
@@ -145,11 +165,18 @@ function SvgLineChart({ data, width, height, onPointSelect, selectedPoint }) {
   const allValues = data.datasets.flatMap(ds => ds.data);
   const rawMax = Math.max(...allValues, 0);
 
-  const niceMax = rawMax <= 0 ? 1 : (() => {
-    const candidates = [0.5, 1, 2, 5, 10, 15, 20, 30, 60, 120, 180, 300, 600];
-    for (const c of candidates) { if (c >= rawMax) return c; }
-    return Math.ceil(rawMax / 60) * 60;
-  })();
+  // FIXED: smooth niceMax that never causes discrete rescale jumps
+const niceMax = rawMax <= 0 ? 1 : (() => {
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawMax)));
+  const normalized = rawMax / magnitude;
+  const niceNorm = normalized <= 1 ? 1
+    : normalized <= 2 ? 2
+    : normalized <= 5 ? 5
+    : 10;
+  const computed = niceNorm * magnitude;
+  // Always ensure niceMax is strictly above rawMax with breathing room
+  return computed <= rawMax ? computed * 2 : computed;
+})();
 
   const gridSteps = 5;
   const scaleX = (i) => pad.left + (i / Math.max(data.labels.length - 1, 1)) * chartW;
@@ -268,7 +295,7 @@ function SvgLineChart({ data, width, height, onPointSelect, selectedPoint }) {
       ))}
 
       {/* Invisible touch zones — on top of everything */}
-      {data.datasets.map((ds, di) =>
+      {data.datasets.flatMap((ds, di) =>
         ds.data.map((v, i) => {
           const cx = scaleX(i);
           const cy = scaleY(v);
@@ -408,7 +435,7 @@ function includeActiveSession(sessions, activeSession) {
   ];
 }
 
-function EditTimeModal({ visible, goal, currentSeconds, periodInfo, onSave, onClose }) {
+function EditTimeModal({ visible, goal, currentSeconds, maxSeconds, periodInfo, onSave, onClose }) {
   const [hours, setHours] = useState('');
   const [minutes, setMinutes] = useState('');
   const [error, setError] = useState('');
@@ -432,7 +459,11 @@ function EditTimeModal({ visible, goal, currentSeconds, periodInfo, onSave, onCl
 
   if (!goal) return null;
 
-  const previewSecs = (parseInt(hours || '0', 10) * 3600) + (parseInt(minutes || '0', 10) * 60);
+const previewSecs = (parseInt(hours || '0', 10) * 3600) + (parseInt(minutes || '0', 10) * 60);
+  const hardMax = Math.min(maxSeconds, periodInfo.totalSeconds);
+  const hardMaxH = Math.floor(hardMax / 3600);
+  const hardMaxM = Math.floor((hardMax % 3600) / 60);
+  const hardMaxStr = hardMaxM > 0 ? `${hardMaxH}h ${hardMaxM}m` : `${hardMaxH}h`;
 
   const handleSave = () => {
     const h = parseInt(hours || '0', 10);
@@ -440,10 +471,17 @@ function EditTimeModal({ visible, goal, currentSeconds, periodInfo, onSave, onCl
     if (Number.isNaN(h) || Number.isNaN(m)) { setError('Enter valid numbers.'); return; }
     if (h < 0 || m < 0) { setError("Values can't be negative."); return; }
     if (m > 59) { setError('Minutes must be 0-59.'); return; }
-    const maxH = Math.floor(periodInfo.totalSeconds / 3600);
-    if (h > maxH) { setError(`Max for this period is ${maxH}h.`); return; }
     const total = h * 3600 + m * 60;
-    if (total > periodInfo.totalSeconds) { setError('Exceeds period total length.'); return; }
+    // Cap against what this goal is actually allowed given other goals' usage.
+    // maxSeconds = periodCapacity - sum(other goals). Never exceed period total either.
+    const hardMax = Math.min(maxSeconds, periodInfo.totalSeconds);
+    if (total > hardMax) {
+      const capH = Math.floor(hardMax / 3600);
+      const capM = Math.floor((hardMax % 3600) / 60);
+      const capStr = capM > 0 ? `${capH}h ${capM}m` : `${capH}h`;
+      setError(`Max for this goal is ${capStr} (other goals use the rest).`);
+      return;
+    }
     onSave(goal.id, total);
   };
 
@@ -531,7 +569,7 @@ function EditTimeModal({ visible, goal, currentSeconds, periodInfo, onSave, onCl
           </View>
 
           <Text style={m.hint}>
-            Replaces all sessions for "{goal.name}" in this period with one entry.
+            Max: {hardMaxStr} · Replaces all sessions for "{goal.name}" in this period.
           </Text>
         </Animated.View>
       </KeyboardAvoidingView>
@@ -548,6 +586,7 @@ export default function StatsScreen({ isActive = true }) {
   const [overview, setOverview] = useState({ today: 0, week: 0, month: 0, total: 0 });
   const [editGoal, setEditGoal] = useState(null);
   const [editSeconds, setEditSeconds] = useState(0);
+  const [editMaxSeconds, setEditMaxSeconds] = useState(0);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedChartPoint, setSelectedChartPoint] = useState(null);
 
@@ -579,7 +618,14 @@ export default function StatsScreen({ isActive = true }) {
       if (sess.endTime < info.start || sess.startTime > info.end) return;
       const cs = Math.max(sess.startTime, info.start);
       const ce = Math.min(sess.endTime, info.end);
-      const dur = Math.floor((ce - cs) / 1000);
+      // For manual sessions (created by the edit-time feature), the stored
+      // duration is the ground truth. Recomputing from (ce - cs) would clip
+      // the duration to the elapsed portion of the current period, which is
+      // wrong when the edit happens early in the day/week/month.
+      // For all other sessions, derive duration from timestamps as before.
+      const dur = sess.id?.startsWith('manual_')
+        ? sess.duration
+        : Math.floor((ce - cs) / 1000);
       if (sess.goalId in sums) sums[sess.goalId] += dur;
     });
 
@@ -592,9 +638,15 @@ export default function StatsScreen({ isActive = true }) {
     setStats(rows);
   }
 
-  const openEdit = (goal) => {
+ const openEdit = (goal) => {
+    // Compute how many seconds other goals are already consuming this period.
+    // The max this goal can be set to = periodCapacity - otherGoalsTotal.
+    const otherGoalsSeconds = stats
+      .filter(g => g.id !== goal.id)
+      .reduce((sum, g) => sum + g.seconds, 0);
     setEditGoal(goal);
     setEditSeconds(goal.seconds);
+    setEditMaxSeconds(periodInfo.totalSeconds - otherGoalsSeconds);
     setModalVisible(true);
   };
 
@@ -616,8 +668,14 @@ const handleSaveTime = async (goalId, newTotalSeconds) => {
     });
 
     if (newTotalSeconds > 0) {
-      const endTime = Math.min(Date.now(), info.end);
-      const startTime = Math.max(endTime - newTotalSeconds * 1000, info.start);
+      // Anchor the synthetic session inside the period so the filter in
+      // loadStats doesn't discard it. We use info.start as the anchor
+      // and set endTime to info.start + duration. For the current period
+      // (e.g. Day tab at 01:00 AM), endTime may be in the "future" relative
+      // to Date.now(), but loadStats reads sess.duration directly for manual
+      // sessions so the timestamp window clipping never applies.
+      const startTime = info.start;
+      const endTime = info.start + newTotalSeconds * 1000;
       kept.push({
         id: `manual_${goalId}_${Date.now()}`,
         goalId,
@@ -784,6 +842,7 @@ const handleSaveTime = async (goalId, newTotalSeconds) => {
         visible={modalVisible}
         goal={editGoal}
         currentSeconds={editSeconds}
+        maxSeconds={editMaxSeconds}
         periodInfo={periodInfo}
         onSave={handleSaveTime}
         onClose={() => setModalVisible(false)}
