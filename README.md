@@ -107,13 +107,11 @@ Just clarity.
 
 ## Screenshots
 
-| Tracker                                     
-| ------------------------------------------- 
-<img width="716" height="1600" alt="WhatsApp Image 2026-05-10 at 11 55 49 AM (2)" src="https://github.com/user-attachments/assets/55aa13d0-071c-4295-8552-0e5181285138" />
-| Statistics                                   |
-<img width="716" height="1600" alt="WhatsApp Image 2026-05-10 at 11 55 49 AM (1)" src="https://github.com/user-attachments/assets/337381b9-96a8-4de0-a6d0-9d945e406cf1" />
-<img width="716" height="1600" alt="WhatsApp Image 2026-05-10 at 11 55 48 AM" src="https://github.com/user-attachments/assets/19726faf-1e6f-47ab-96e1-f4205fe9d512" />
-
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/55aa13d0-071c-4295-8552-0e5181285138" width="250" />
+  <img src="https://github.com/user-attachments/assets/337381b9-96a8-4de0-a6d0-9d945e406cf1" width="250" />
+  <img src="https://github.com/user-attachments/assets/19726faf-1e6f-47ab-96e1-f4205fe9d512" width="250" />
+</p>
 
 ---
 
