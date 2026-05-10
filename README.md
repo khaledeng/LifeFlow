@@ -143,14 +143,24 @@ npx expo start
 ## Project Structure
 
 ```plaintext
-src/
- ├── navigation/
- ├── screens/
- │   ├── SetupScreen
- │   ├── TrackerScreen
- │   └── StatsScreen
- ├── storage/
 App.js
+app.json
+assets/
+index.js
+package.json
+README.md
+src/
+ ├── components/
+ │   └── AppShell.js
+ ├── screens/
+ │   ├── DataScreen.js
+ │   ├── GoalsScreen.js
+ │   ├── SetupScreen.js
+ │   ├── StatsScreen.js
+ │   └── TrackerScreen.js
+ ├── storage.js
+ ├── trackingService.js
+ └── notifications.js
 ```
 
 ---
