@@ -66,28 +66,28 @@ function buildPoints(tab) {
   const now = new Date();
   const points = [];
   if (tab === 'Day') {
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
 
-  const nowMs = now.getTime();
+    const nowMs = now.getTime();
 
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
 
-    const start = d.getTime();
+      const start = d.getTime();
 
-    const end =
-      i === 0
-        ? nowMs
-        : new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+      const end =
+        i === 0
+          ? nowMs
+          : new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
 
-    points.push({
-      label: d.getDate().toString(),
-      start,
-      end,
-    });
-  }
+      points.push({
+        label: d.getDate().toString(),
+        start,
+        end,
+      });
+    }
   } else if (tab === 'Week') {
     for (let i = 7; i >= 0; i--) {
       const d = new Date();
@@ -118,20 +118,20 @@ function buildChartData(tab, sessions, goals) {
   const rawDatasets = goals.map(goal => {
     const data = points.map(p => {
       let total = 0;
-    sessions.forEach(sess => {
-  if (sess.goalId !== goal.id || !sess.endTime) return;
-if (sess.endTime <= p.start || sess.startTime >= p.end) return;
-  // Manual sessions store ground-truth duration; use it directly,
-  // same as loadStats does. Computing from timestamps clips the value
-  // to the elapsed portion of the period window (critical for Day tab).
-  if (sess.id?.startsWith('manual_')) {
-    total += sess.duration ?? 0;
-    return;
-  }
-  const cs = Math.max(sess.startTime, p.start);
-  const ce = Math.min(sess.endTime, p.end);
-  total += Math.floor((ce - cs) / 1000);
-});
+      sessions.forEach(sess => {
+        if (sess.goalId !== goal.id || !sess.endTime) return;
+        if (sess.endTime <= p.start || sess.startTime >= p.end) return;
+        // Manual sessions store ground-truth duration; use it directly,
+        // same as loadStats does. Computing from timestamps clips the value
+        // to the elapsed portion of the period window (critical for Day tab).
+        if (sess.id?.startsWith('manual_')) {
+          total += sess.duration ?? 0;
+          return;
+        }
+        const cs = Math.max(sess.startTime, p.start);
+        const ce = Math.min(sess.endTime, p.end);
+        total += Math.floor((ce - cs) / 1000);
+      });
       return total;
     });
     return { goal, data };
@@ -516,7 +516,7 @@ const previewSecs = (parseInt(hours || '0', 10) * 3600) + (parseInt(minutes || '
           <View style={m.inputRow}>
             <View style={m.inputBlock}>
               <TextInput
-                style={[m.input, { borderColor: goal.color + '60' }]}
+                style={[m.input, { borderColor: goal.color + '60' }]} 
                 value={hours}
                 onChangeText={v => { setHours(v.replace(/[^0-9]/g, '')); setError(''); }}
                 keyboardType="number-pad"
@@ -532,7 +532,7 @@ const previewSecs = (parseInt(hours || '0', 10) * 3600) + (parseInt(minutes || '
 
             <View style={m.inputBlock}>
               <TextInput
-                style={[m.input, { borderColor: goal.color + '60' }]}
+                style={[m.input, { borderColor: goal.color + '60' }]} 
                 value={minutes}
                 onChangeText={v => { setMinutes(v.replace(/[^0-9]/g, '')); setError(''); }}
                 keyboardType="number-pad"
@@ -547,9 +547,7 @@ const previewSecs = (parseInt(hours || '0', 10) * 3600) + (parseInt(minutes || '
 
           <View style={[m.preview, { backgroundColor: goal.color + '12', borderColor: goal.color + '28' }]}>
             <Text style={[m.previewLabel, { color: goal.color + 'aa' }]}>NEW TOTAL</Text>
-            <Text style={[m.previewValue, { color: goal.color }]}>
-              {fmtDuration(previewSecs)}
-            </Text>
+            <Text style={[m.previewValue, { color: goal.color }]}> {fmtDuration(previewSecs)}</Text>
           </View>
 
           {!!error && <Text style={m.error}>{error}</Text>}
@@ -559,7 +557,7 @@ const previewSecs = (parseInt(hours || '0', 10) * 3600) + (parseInt(minutes || '
               <Text style={m.cancelTxt}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[m.saveBtn, { backgroundColor: goal.color }]}
+              style={[m.saveBtn, { backgroundColor: goal.color }]} 
               onPress={handleSave}
               activeOpacity={0.8}
             >
