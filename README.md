@@ -109,9 +109,10 @@ Just clarity.
 
 | Tracker                                     
 | ------------------------------------------- 
-<img width="912" height="1595" alt="Screenshot 2026-05-08 080653" src="https://github.com/user-attachments/assets/8678ad54-3369-4660-b175-c5147da50eff" />
+<img width="716" height="1600" alt="WhatsApp Image 2026-05-10 at 11 55 49 AM (2)" src="https://github.com/user-attachments/assets/55aa13d0-071c-4295-8552-0e5181285138" />
 | Statistics                                   |
-<img width="1277" height="1665" alt="Screenshot 2026-05-08 080624" src="https://github.com/user-attachments/assets/46c110e8-ffac-424e-8988-681c7bfc194f" />
+<img width="716" height="1600" alt="WhatsApp Image 2026-05-10 at 11 55 49 AM (1)" src="https://github.com/user-attachments/assets/337381b9-96a8-4de0-a6d0-9d945e406cf1" />
+<img width="716" height="1600" alt="WhatsApp Image 2026-05-10 at 11 55 48 AM" src="https://github.com/user-attachments/assets/19726faf-1e6f-47ab-96e1-f4205fe9d512" />
 
 
 ---
