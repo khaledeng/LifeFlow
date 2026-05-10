@@ -5,7 +5,7 @@
 
 A minimalist productivity tracking app built with **React Native + Expo** that helps you understand where your time actually goes.
 
-LifeFlow lets you assign your day to your most important life categories — like **Study**, **Sleep**, and **Entertainment** — and automatically tracks how much time each one consumes.
+LifeFlow lets you assign your day to your most important life categories and control tracking instantly from your notification bar. — like **Study**, **Sleep**, and **Entertainment** — and automatically tracks how much time each one consumes.
 
 Instead of tracking app usage, LifeFlow tracks **real-life activity states**.
 
@@ -108,9 +108,11 @@ Just clarity.
 ## Screenshots
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/55aa13d0-071c-4295-8552-0e5181285138" width="250" />
-  <img src="https://github.com/user-attachments/assets/337381b9-96a8-4de0-a6d0-9d945e406cf1" width="250" />
-  <img src="https://github.com/user-attachments/assets/19726faf-1e6f-47ab-96e1-f4205fe9d512" width="250" />
+  <img src="https://github.com/user-attachments/assets/55aa13d0-071c-4295-8552-0e5181285138" width="230" />
+  <img src="https://github.com/user-attachments/assets/337381b9-96a8-4de0-a6d0-9d945e406cf1" width="230" />
+  <img src="https://github.com/user-attachments/assets/19726faf-1e6f-47ab-96e1-f4205fe9d512" width="230" />
+  <img src="https://github.com/user-attachments/assets/3ff3d9cc-67f1-4358-b58a-f172c39e2097" width="230" />
+  <img src="https://github.com/user-attachments/assets/ec37e264-875f-4c1d-9247-a48a6d4d92b1" width="230" />
 </p>
 
 ---
