@@ -10,7 +10,6 @@ import {
   Modal,
   TextInput,
   Animated,
-  TouchableWithoutFeedback,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -305,7 +304,7 @@ const niceMax = rawMax <= 0 ? 1 : (() => {
               key={`touch-${di}-${i}`}
               x={cx - ZONE} y={cy - ZONE}
               width={ZONE * 2} height={ZONE * 2}
-              fill="transparent"
+              fill="rgba(0,0,0,0.01)"
               onPress={() => {
                 const isAlreadySelected =
                   selectedPoint?.dsIndex === di &&
@@ -789,17 +788,13 @@ const handleSaveTime = async (goalId, newTotalSeconds) => {
                 </View>
               ))}
             </View>
-      <TouchableWithoutFeedback onPress={() => setSelectedChartPoint(null)}>
-        <View>
-          <SvgLineChart
+      <SvgLineChart
             data={chartData}
             width={SCREEN_W - 48}
             height={200}
             selectedPoint={selectedChartPoint}
             onPointSelect={setSelectedChartPoint}
           />
-        </View>
-      </TouchableWithoutFeedback>
       </View>
         )}
 
