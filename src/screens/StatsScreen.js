@@ -12,6 +12,8 @@ import {
   Animated,
   KeyboardAvoidingView,
   Platform,
+  TouchableWithoutFeedback,
+
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path, Line, Text as SvgText, Circle ,Rect} from 'react-native-svg';
