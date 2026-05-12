@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,20 @@ import Svg, { Path, Line, Text as SvgText, Circle ,Rect} from 'react-native-svg'
 import { getActiveSession, getGoals, getSessions, saveSessions } from '../storage';
 const SCREEN_W = Dimensions.get('window').width;
 const TABS = ['Day', 'Week', 'Month', 'Year'];
+const CHART_HEIGHT = 200;
+const CHART_VISIBLE_PERIODS = {
+  Day: 10,
+  Week: 14,
+  Month: 6,
+  Year: 5,
+};
+const CHART_POINT_WIDTH = {
+  Day: 55,
+  Week: 95,
+  Month: 75,
+  Year: 90,
+};
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 function fmtDuration(secs) {
   if (secs <= 0) return '0s';
@@ -64,61 +78,195 @@ function getPeriodInfo(tab) {
   }
 }
 
-function buildPoints(tab) {
-  const now = new Date();
-  const points = [];
+function getVisiblePeriodCount(tab) {
+  return CHART_VISIBLE_PERIODS[tab] || CHART_VISIBLE_PERIODS.Day;
+}
+
+function getPointWidth(tab, viewportWidth) {
+  const minWidth = CHART_POINT_WIDTH[tab] || CHART_POINT_WIDTH.Day;
+  return Math.max(minWidth, viewportWidth / getVisiblePeriodCount(tab));
+}
+
+function getFuturePeriodCount(tab) {
+  return Math.floor(getVisiblePeriodCount(tab) / 2);
+}
+
+function getPastPaddingPeriodCount(tab) {
+  return Math.floor(getVisiblePeriodCount(tab) / 2);
+}
+
+function startOfPeriod(tab, time) {
+  const d = new Date(time);
+  d.setHours(0, 0, 0, 0);
+
   if (tab === 'Day') {
-    const today = new Date(now);
-    today.setHours(0, 0, 0, 0);
-
-    const nowMs = now.getTime();
-
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-
-      const start = d.getTime();
-
-      const end =
-        i === 0
-          ? nowMs
-          : new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
-
-      points.push({
-        label: d.getDate().toString(),
-        start,
-        end,
-      });
-    }
-  } else if (tab === 'Week') {
-    for (let i = 7; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(now.getDate() - now.getDay() - i * 7);
-      d.setHours(0, 0, 0, 0);
-      const start = d.getTime();
-      points.push({ label: `${d.getDate()}/${d.getMonth() + 1}`, start, end: start + 7 * 86400000 });
-    }
-  } else if (tab === 'Month') {
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const start = d.getTime();
-      const end = new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime();
-      points.push({ label: d.toLocaleDateString('en-US', { month: 'short' }), start, end });
-    }
-  } else {
-    for (let i = 4; i >= 0; i--) {
-      const y = now.getFullYear() - i;
-      points.push({ label: String(y), start: new Date(y, 0, 1).getTime(), end: new Date(y + 1, 0, 1).getTime() });
-    }
+    return d.getTime();
   }
+
+  if (tab === 'Week') {
+    d.setDate(d.getDate() - d.getDay());
+    return d.getTime();
+  }
+
+  if (tab === 'Month') {
+    return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+  }
+
+  return new Date(d.getFullYear(), 0, 1).getTime();
+}
+
+function addPeriods(tab, startMs, amount) {
+  const d = new Date(startMs);
+
+  if (tab === 'Day') {
+    d.setDate(d.getDate() + amount);
+    return d.getTime();
+  }
+
+  if (tab === 'Week') {
+    d.setDate(d.getDate() + amount * 7);
+    return d.getTime();
+  }
+
+  if (tab === 'Month') {
+    return new Date(d.getFullYear(), d.getMonth() + amount, 1).getTime();
+  }
+
+  return new Date(d.getFullYear() + amount, 0, 1).getTime();
+}
+
+function countPeriods(tab, firstStart, latestStart) {
+  let count = 0;
+  let cursor = firstStart;
+
+  while (cursor <= latestStart) {
+    count += 1;
+    cursor = addPeriods(tab, cursor, 1);
+  }
+
+  return Math.max(1, count);
+}
+
+function getEarliestSessionTime(sessions) {
+  const times = sessions
+    .flatMap(sess => [sess.startTime, sess.endTime])
+    .filter(time => typeof time === 'number' && Number.isFinite(time));
+
+  return times.length ? Math.min(...times) : Date.now();
+}
+
+function buildHistoricalRange(tab, sessions) {
+  const nowMs = Date.now();
+  const firstSessionStart = startOfPeriod(tab, getEarliestSessionTime(sessions));
+  const currentStart = startOfPeriod(tab, nowMs);
+  const paddedStart = addPeriods(tab, currentStart, -getPastPaddingPeriodCount(tab));
+  const firstStart = Math.min(firstSessionStart, paddedStart);
+  const endStart = addPeriods(tab, currentStart, getFuturePeriodCount(tab));
+
+  return {
+    tab,
+    start: firstStart,
+    now: nowMs,
+    currentIndex: countPeriods(tab, firstStart, currentStart) - 1,
+    totalPeriods: countPeriods(tab, firstStart, endStart),
+    visiblePeriods: getVisiblePeriodCount(tab),
+  };
+}
+
+function buildPeriodPoint(tab, range, index) {
+  const start = addPeriods(tab, range.start, index);
+  const end = addPeriods(tab, start, 1);
+  const d = new Date(start);
+
+  if (tab === 'Day') {
+    return { index, label: d.getDate().toString(), start, end: Math.min(end, range.now) };
+  }
+
+  if (tab === 'Week') {
+    return {
+      index,
+      label: d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }),
+      start,
+      end: Math.min(end, range.now),
+    };
+  }
+
+  if (tab === 'Month') {
+    return {
+      index,
+      label: d.toLocaleDateString('en-US', { month: 'short' }),
+      start,
+      end: Math.min(end, range.now),
+    };
+  }
+
+  return { index, label: String(d.getFullYear()), start, end: Math.min(end, range.now) };
+}
+
+function buildPoints(tab, range, startIndex, count) {
+  const points = [];
+  const safeStart = Math.max(0, startIndex);
+  const safeEnd = Math.min(range.totalPeriods, safeStart + Math.max(1, count));
+
+  for (let index = safeStart; index < safeEnd; index++) {
+    points.push(buildPeriodPoint(tab, range, index));
+  }
+
   return points;
 }
 
-function buildChartData(tab, sessions, goals) {
-  const points = buildPoints(tab);
+function getChartWindow(tab, range, scrollX, viewportWidth) {
+  if (!range || viewportWidth <= 0) {
+    return { startIndex: 0, count: getVisiblePeriodCount(tab), left: 0, width: viewportWidth };
+  }
+
+  const visiblePeriods = range.visiblePeriods;
+  const periodWidth = getPointWidth(tab, viewportWidth);
+  const firstVisibleIndex = Math.floor(Math.max(0, scrollX) / periodWidth);
+  const buffer = visiblePeriods;
+  const startIndex = Math.max(0, firstVisibleIndex - buffer);
+  const endIndex = Math.min(range.totalPeriods, firstVisibleIndex + visiblePeriods + buffer);
+  const count = Math.max(1, endIndex - startIndex);
+
+  return {
+    startIndex,
+    count,
+    left: startIndex * periodWidth,
+    width: Math.max(viewportWidth, count * periodWidth),
+  };
+}
+
+function getChartContentWidth(range, viewportWidth) {
+  if (!range || viewportWidth <= 0) return viewportWidth;
+  const periodWidth = getPointWidth(range.tab, viewportWidth);
+  return Math.max(viewportWidth, range.totalPeriods * periodWidth);
+}
+
+function getLatestChartOffset(range, viewportWidth) {
+  return Math.max(0, getChartContentWidth(range, viewportWidth) - viewportWidth);
+}
+
+function getInitialChartOffset(range, viewportWidth) {
+  if (!range || viewportWidth <= 0) return 0;
+
+  const periodWidth = getPointWidth(range.tab, viewportWidth);
+  const currentCenterX = range.currentIndex * periodWidth + periodWidth / 2;
+  const maxOffset = getLatestChartOffset(range, viewportWidth);
+
+  return clamp(currentCenterX - viewportWidth / 2, 0, maxOffset);
+}
+
+function buildChartData(tab, sessions, goals, range, startIndex = 0, count = getVisiblePeriodCount(tab)) {
+  if (!range) {
+    return { labels: [], datasets: [], goals, unit: 'm' };
+  }
+
+  const points = buildPoints(tab, range, startIndex, count);
 
   const rawDatasets = goals.map(goal => {
     const data = points.map(p => {
+      if (p.start > range.now) return null;
+
       let total = 0;
       sessions.forEach(sess => {
         if (sess.goalId !== goal.id || !sess.endTime) return;
@@ -139,17 +287,31 @@ function buildChartData(tab, sessions, goals) {
     return { goal, data };
   });
 
-  const maxSeconds = Math.max(0, ...rawDatasets.flatMap(ds => ds.data));
+  const realValues = rawDatasets
+    .flatMap(ds => ds.data)
+    .filter(value => typeof value === 'number');
+  const maxSeconds = Math.max(0, ...realValues);
   const useMinutes = maxSeconds < 3600;
   const unit = useMinutes ? 'm' : 'h';
   const divisor = useMinutes ? 60 : 3600;
 
   const datasets = rawDatasets.map(({ goal, data }) => ({
-    data: data.map(total => Math.max(0, Math.round((total / divisor) * 10) / 10)),
+    data: data.map(total => (
+      total == null
+        ? null
+        : Math.max(0, Math.round((total / divisor) * 10) / 10)
+    )),
     color: goal.color,
   }));
 
-  return { labels: points.map(p => p.label), datasets, goals, unit };
+  return {
+    labels: points.map(p => p.label),
+    labelIndexes: points.map(p => p.index),
+    datasets,
+    goals,
+    tab,
+    unit,
+  };
 }
 
 // ─── Lightweight SVG Line Chart (Linear, Work-only, neon glow) ───────────────
@@ -157,13 +319,15 @@ function buildChartData(tab, sessions, goals) {
 // ─── Tooltip + Interactive SVG Line Chart ────────────────────────────────────
 
 function SvgLineChart({ data, width, height, onPointSelect, selectedPoint }) {
-  const pad = { top: 14, right: 12, bottom: 28, left: 46 };
+  const pad = { top: 14, right: 12, bottom: 42, left: 46 };
   const chartW = width - pad.left - pad.right;
   const chartH = height - pad.top - pad.bottom;
 
   if (!data || !data.datasets.length) return null;
 
-  const allValues = data.datasets.flatMap(ds => ds.data);
+  const allValues = data.datasets
+    .flatMap(ds => ds.data)
+    .filter(value => typeof value === 'number');
   const rawMax = Math.max(...allValues, 0);
 
   // FIXED: smooth niceMax that never causes discrete rescale jumps
@@ -244,12 +408,26 @@ const niceMax = rawMax <= 0 ? 1 : (() => {
 
       {/* Data lines */}
       {data.datasets.map((ds, di) => {
-        const pts = ds.data.map((v, i) => ({ x: scaleX(i), y: scaleY(v), v, i }));
+        const pts = ds.data.map((v, i) => (
+          v == null ? null : { x: scaleX(i), y: scaleY(v), v, i }
+        ));
+        const realPts = pts.filter(Boolean);
         if (!pts.length) return null;
 
-        let d = `M ${pts[0].x},${pts[0].y}`;
-        for (let i = 1; i < pts.length; i++) {
-          d += ` L ${pts[i].x},${pts[i].y}`;
+        let d = '';
+        let segmentOpen = false;
+        pts.forEach((p) => {
+          if (!p) {
+            segmentOpen = false;
+            return;
+          }
+
+          d += `${d ? ' ' : ''}${segmentOpen ? 'L' : 'M'} ${p.x},${p.y}`;
+          segmentOpen = true;
+        });
+
+        if (!realPts.length) {
+          return null;
         }
 
         return (
@@ -266,7 +444,7 @@ const niceMax = rawMax <= 0 ? 1 : (() => {
               strokeWidth={2.5}
               strokeLinecap="round" strokeLinejoin="round" />
             {/* Dots */}
-            {pts.map((p) => {
+            {realPts.map((p) => {
               const isSelected =
                 selectedPoint?.dsIndex === di &&
                 selectedPoint?.ptIndex === p.i;
@@ -287,17 +465,27 @@ const niceMax = rawMax <= 0 ? 1 : (() => {
       })}
 
       {/* X labels */}
-      {data.labels.map((label, i) => (
-        <SvgText key={`lbl-${i}`}
-          x={scaleX(i)} y={height - 6}
-          fontSize={10} fill="#555" textAnchor="middle">
-          {label}
-        </SvgText>
-      ))}
+      {data.labels.map((label, i) => {
+        const pointSpacing = chartW / Math.max(data.labels.length - 1, 1);
+        const originalIndex = data.labelIndexes?.[i] ?? i;
+        if (data.tab === 'Week' && pointSpacing < 105 && originalIndex % 2 !== 0) {
+          return null;
+        }
+
+        return (
+          <SvgText key={`lbl-${i}`}
+            x={scaleX(i)} y={height - 10}
+            fontSize={10} fill="#555" textAnchor="middle">
+            {label}
+          </SvgText>
+        );
+      })}
 
       {/* Invisible touch zones — on top of everything */}
       {data.datasets.flatMap((ds, di) =>
         ds.data.map((v, i) => {
+          if (v == null) return null;
+
           const cx = scaleX(i);
           const cy = scaleY(v);
           const ZONE = 22;
@@ -581,13 +769,40 @@ export default function StatsScreen({ isActive = true }) {
   const [stats, setStats] = useState([]);
   const [totalTracked, setTotalTracked] = useState(0);
   const [periodInfo, setPeriodInfo] = useState(getPeriodInfo('Day'));
-  const [chartData, setChartData] = useState(null);
+  const [chartSource, setChartSource] = useState({ sessions: [], goals: [] });
+  const [chartRange, setChartRange] = useState(null);
+  const [chartScrollX, setChartScrollX] = useState(0);
+  const [chartViewportWidth, setChartViewportWidth] = useState(SCREEN_W - 64);
   const [overview, setOverview] = useState({ today: 0, week: 0, month: 0, total: 0 });
   const [editGoal, setEditGoal] = useState(null);
   const [editSeconds, setEditSeconds] = useState(0);
   const [editMaxSeconds, setEditMaxSeconds] = useState(0);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedChartPoint, setSelectedChartPoint] = useState(null);
+  const chartScrollRef = useRef(null);
+  const latestScrollKeyRef = useRef(null);
+
+  const chartWindow = useMemo(
+    () => getChartWindow(activeTab, chartRange, chartScrollX, chartViewportWidth),
+    [activeTab, chartRange, chartScrollX, chartViewportWidth],
+  );
+
+  const chartContentWidth = useMemo(
+    () => getChartContentWidth(chartRange, chartViewportWidth),
+    [chartRange, chartViewportWidth],
+  );
+
+  const chartData = useMemo(
+    () => buildChartData(
+      activeTab,
+      chartSource.sessions,
+      chartSource.goals,
+      chartRange,
+      chartWindow.startIndex,
+      chartWindow.count,
+    ),
+    [activeTab, chartSource, chartRange, chartWindow.startIndex, chartWindow.count],
+  );
 
 
   useEffect(() => {
@@ -597,6 +812,24 @@ export default function StatsScreen({ isActive = true }) {
     const timer = setInterval(() => loadStats(activeTab), 1000);
     return () => clearInterval(timer);
   }, [isActive, activeTab]);
+
+  useEffect(() => {
+    setSelectedChartPoint(null);
+  }, [activeTab, chartWindow.startIndex]);
+
+  useEffect(() => {
+    if (!chartRange || chartViewportWidth <= 0) return;
+
+    const key = `${activeTab}:${chartRange.start}:${chartRange.totalPeriods}:${chartViewportWidth}`;
+    if (latestScrollKeyRef.current === key) return;
+    latestScrollKeyRef.current = key;
+
+    const initialOffset = getInitialChartOffset(chartRange, chartViewportWidth);
+    setChartScrollX(initialOffset);
+    requestAnimationFrame(() => {
+      chartScrollRef.current?.scrollTo({ x: initialOffset, animated: false });
+    });
+  }, [activeTab, chartRange, chartViewportWidth]);
 
   async function loadStats(tab) {
     const [goals, savedSessions, activeSession] = await Promise.all([
@@ -608,7 +841,8 @@ export default function StatsScreen({ isActive = true }) {
     const info = getPeriodInfo(tab);
     setPeriodInfo(info);
     setOverview(calcOverview(sessions));
-    setChartData(buildChartData(tab, sessions, goals));
+    setChartSource({ sessions, goals });
+    setChartRange(buildHistoricalRange(tab, sessions));
 
     const sums = {};
     goals.forEach(g => { sums[g.id] = 0; });
@@ -788,13 +1022,42 @@ const handleSaveTime = async (goalId, newTotalSeconds) => {
                 </View>
               ))}
             </View>
-      <SvgLineChart
-            data={chartData}
-            width={SCREEN_W - 48}
-            height={200}
-            selectedPoint={selectedChartPoint}
-            onPointSelect={setSelectedChartPoint}
-          />
+            <ScrollView
+              ref={chartScrollRef}
+              horizontal
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator={false}
+              scrollEventThrottle={16}
+              onLayout={(event) => {
+                const nextWidth = event.nativeEvent.layout.width;
+                if (nextWidth > 0 && Math.abs(nextWidth - chartViewportWidth) > 1) {
+                  setChartViewportWidth(nextWidth);
+                }
+              }}
+              onScroll={(event) => {
+                setChartScrollX(event.nativeEvent.contentOffset.x);
+              }}
+            >
+              <View style={[s.chartCanvas, { width: chartContentWidth }]}>
+                <View
+                  style={[
+                    s.chartWindow,
+                    {
+                      left: chartWindow.left,
+                      width: chartWindow.width,
+                    },
+                  ]}
+                >
+                  <SvgLineChart
+                    data={chartData}
+                    width={chartWindow.width}
+                    height={CHART_HEIGHT}
+                    selectedPoint={selectedChartPoint}
+                    onPointSelect={setSelectedChartPoint}
+                  />
+                </View>
+              </View>
+            </ScrollView>
       </View>
         )}
 
@@ -878,6 +1141,8 @@ const s = StyleSheet.create({
   chartLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   chartLegendLine: { width: 18, height: 2, borderRadius: 1 },
   chartLegendText: { fontSize: 11, color: '#666' },
+  chartCanvas: { height: CHART_HEIGHT, position: 'relative' },
+  chartWindow: { position: 'absolute', top: 0, height: CHART_HEIGHT },
   sectionRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 10, marginLeft: 2 },
   sectionLabel: { fontSize: 10, fontWeight: '700', color: '#333', letterSpacing: 1.5, marginBottom: 10, marginLeft: 2 },
   sectionRowLabel: { fontSize: 10, fontWeight: '700', color: '#333', letterSpacing: 1.5 },

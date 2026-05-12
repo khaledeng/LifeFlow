@@ -8,6 +8,7 @@ import {
   getGoals, getSessions, getActiveSession,
   saveGoals, saveSessions, saveActiveSession, saveSetupDone,
 } from '../storage';
+import { removeHistoricalDemoData, seedHistoricalDemoData } from '../devSeedData';
 
 const BACKUP_VERSION = 1;
 const IS_WEB = Platform.OS === 'web';
@@ -116,6 +117,8 @@ export default function DataScreen({ isActive = true }) {
   const [stats,          setStats]          = useState(null);
   const [exporting,      setExporting]      = useState(false);
   const [importing,      setImporting]      = useState(false);
+  const [seeding,        setSeeding]        = useState(false);
+  const [removingSeed,   setRemovingSeed]   = useState(false);
   const [lastBackupInfo, setLastBackupInfo] = useState(null);
   const [log,            setLog]            = useState([]);
 
@@ -243,6 +246,46 @@ export default function DataScreen({ isActive = true }) {
     } catch (err) { addLog(`Reset failed: ${err.message}`, 'error'); }
   }
 
+  async function handleSeedDemoHistory() {
+    if (!__DEV__) return;
+    setSeeding(true);
+    addLog('Creating 12 months of demo history...');
+    try {
+      const result = await seedHistoricalDemoData();
+      await loadStats();
+      const first = result.firstDate
+        ? new Date(result.firstDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : 'n/a';
+      const last = result.lastDate
+        ? new Date(result.lastDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : 'n/a';
+      addLog(`Seeded ${result.added} demo sessions (${first} - ${last})`, 'success');
+      if (!IS_WEB) Alert.alert('Demo history added', `Added ${result.added} tagged demo sessions.`);
+    } catch (err) {
+      addLog(`Seed failed: ${err.message}`, 'error');
+      if (!IS_WEB) Alert.alert('Seed failed', err.message);
+    } finally {
+      setSeeding(false);
+    }
+  }
+
+  async function handleRemoveDemoHistory() {
+    if (!__DEV__) return;
+    setRemovingSeed(true);
+    addLog('Removing seeded demo history...');
+    try {
+      const result = await removeHistoricalDemoData();
+      await loadStats();
+      addLog(`Removed ${result.removed} demo sessions`, 'success');
+      if (!IS_WEB) Alert.alert('Demo history removed', `Removed ${result.removed} tagged demo sessions.`);
+    } catch (err) {
+      addLog(`Remove seed failed: ${err.message}`, 'error');
+      if (!IS_WEB) Alert.alert('Remove seed failed', err.message);
+    } finally {
+      setRemovingSeed(false);
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -331,6 +374,38 @@ export default function DataScreen({ isActive = true }) {
           </View>
         )}
 
+        {__DEV__ && (
+          <View style={s.section}>
+            <Text style={s.sectionLabel}>DEV TEST DATA</Text>
+            <View style={s.devCard}>
+              <View style={s.actionInfo}>
+                <Text style={s.actionTitle}>Scrollable Chart Demo</Text>
+                <Text style={s.actionDesc}>
+                  Adds tagged Work, Sleep, and Entertainment sessions for the last 12 months.
+                </Text>
+              </View>
+              <View style={s.devBtnCol}>
+                <TouchableOpacity
+                  style={[s.btn, s.btnExport, seeding && s.btnDisabled]}
+                  onPress={handleSeedDemoHistory}
+                  disabled={seeding || removingSeed}
+                  activeOpacity={0.8}
+                >
+                  {seeding ? <ActivityIndicator color="#0a1a0a" size="small" /> : <Text style={s.btnExportText}>Seed</Text>}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.btn, s.btnDanger, removingSeed && s.btnDisabled]}
+                  onPress={handleRemoveDemoHistory}
+                  disabled={seeding || removingSeed}
+                  activeOpacity={0.8}
+                >
+                  {removingSeed ? <ActivityIndicator color="#f87171" size="small" /> : <Text style={s.btnDangerText}>Remove</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* Activity log */}
         {log.length > 0 && (
           <View style={s.section}>
@@ -403,6 +478,8 @@ const s = StyleSheet.create({
   actionTitle: { fontSize: 15, fontWeight: '700', color: '#f0f0f0', marginBottom: 5 },
   actionDesc:  { fontSize: 12, color: '#555', lineHeight: 18 },
   actionMeta:  { fontSize: 11, color: '#3a3a3a', marginTop: 6 },
+  devCard:     { backgroundColor: '#141414', borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#23402d', gap: 12 },
+  devBtnCol:   { gap: 8 },
 
   btn:           { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center', minWidth: 88, minHeight: 46 },
   btnDisabled:   { opacity: 0.5 },
