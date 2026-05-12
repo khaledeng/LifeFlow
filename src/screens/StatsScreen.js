@@ -29,7 +29,7 @@ const CHART_VISIBLE_PERIODS = {
 };
 const CHART_POINT_WIDTH = {
   Day: 55,
-  Week: 95,
+  Week: 55,
   Month: 75,
   Year: 90,
 };
@@ -307,6 +307,7 @@ function buildChartData(tab, sessions, goals, range, startIndex = 0, count = get
   return {
     labels: points.map(p => p.label),
     labelIndexes: points.map(p => p.index),
+    dates: points.map(p => p.start),
     datasets,
     goals,
     tab,
@@ -314,12 +315,54 @@ function buildChartData(tab, sessions, goals, range, startIndex = 0, count = get
   };
 }
 
-// ─── Lightweight SVG Line Chart (Linear, Work-only, neon glow) ───────────────
+// ─── Fixed Y-Axis Component ──────────────────────────────────────────────────
+function SvgFixedYAxis({ data, height }) {
+  const width = 55;
+  const pad = { top: 14, right: 0, bottom: 42, left: 0 };
+  const chartH = height - pad.top - pad.bottom;
+  
+  if (!data || !data.datasets.length) return null;
+
+  const rawMax = Math.max(...data.datasets.flatMap(ds => ds.data).filter(v => typeof v === 'number'), 0);
+  const niceMax = rawMax <= 0 ? 1 : (() => {
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawMax)));
+    const normalized = rawMax / magnitude;
+    const niceNorm = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+    const computed = niceNorm * magnitude;
+    return computed <= rawMax ? computed * 2 : computed;
+  })();
+
+  const gridSteps = 5;
+
+  return (
+    <Svg width={width} height={height}>
+      {Array.from({ length: gridSteps + 1 }, (_, i) => {
+        const y = pad.top + (i / gridSteps) * chartH;
+        const val = ((gridSteps - i) / gridSteps) * niceMax;
+        const label = val % 1 === 0 ? `${val}` : val.toFixed(1);
+        return (
+          <React.Fragment key={`grid-${i}`}>
+            <SvgText
+              x={width - 6} y={y + 4}
+              fontSize={10} fill="#555" textAnchor="end">
+              {label}{data.unit}
+            </SvgText>
+            <Line
+              x1={width - 4} y1={y}
+              x2={width} y2={y}
+              stroke="#1e1e1e" strokeWidth={1}
+            />
+          </React.Fragment>
+        );
+      })}
+    </Svg>
+  );
+}
 
 // ─── Tooltip + Interactive SVG Line Chart ────────────────────────────────────
 
 function SvgLineChart({ data, width, height, onPointSelect, selectedPoint }) {
-  const pad = { top: 14, right: 12, bottom: 42, left: 46 };
+  const pad = { top: 14, right: 12, bottom: 42, left: 10 };
   const chartW = width - pad.left - pad.right;
   const chartH = height - pad.top - pad.bottom;
 
@@ -385,24 +428,16 @@ const niceMax = rawMax <= 0 ? 1 : (() => {
 
   return (
     <Svg width={width} height={height}>
-      {/* Grid lines + Y labels */}
+      {/* Grid lines (Y labels are now in SvgFixedYAxis) */}
       {Array.from({ length: gridSteps + 1 }, (_, i) => {
         const y = pad.top + (i / gridSteps) * chartH;
-        const val = ((gridSteps - i) / gridSteps) * niceMax;
-        const label = val % 1 === 0 ? `${val}` : val.toFixed(1);
         return (
-          <React.Fragment key={`grid-${i}`}>
-            <Line
-              x1={pad.left} y1={y}
-              x2={width - pad.right} y2={y}
-              stroke="#1e1e1e" strokeWidth={1} strokeDasharray="5,5"
-            />
-            <SvgText
-              x={pad.left - 6} y={y + 4}
-              fontSize={10} fill="#555" textAnchor="end">
-              {label}{data.unit}
-            </SvgText>
-          </React.Fragment>
+          <Line
+            key={`grid-${i}`}
+            x1={0} y1={y}
+            x2={width} y2={y}
+            stroke="#1e1e1e" strokeWidth={1} strokeDasharray="5,5"
+          />
         );
       })}
 
@@ -468,16 +503,43 @@ const niceMax = rawMax <= 0 ? 1 : (() => {
       {data.labels.map((label, i) => {
         const pointSpacing = chartW / Math.max(data.labels.length - 1, 1);
         const originalIndex = data.labelIndexes?.[i] ?? i;
-        if (data.tab === 'Week' && pointSpacing < 105 && originalIndex % 2 !== 0) {
+
+        let isStacked = false;
+        let line1 = label;
+        let line2 = null;
+
+        if (data.tab === 'Week' && data.dates) {
+          const d = new Date(data.dates[i]);
+          const dateNum = d.getDate();
+          if (dateNum <= 7) {
+            line1 = d.toLocaleDateString('en-US', { month: 'short' });
+            line2 = String(d.getFullYear());
+            isStacked = true;
+          } else {
+            line1 = String(dateNum);
+          }
+        }
+
+        if (data.tab === 'Week' && pointSpacing < 105 && originalIndex % 2 !== 0 && !isStacked) {
           return null;
         }
 
         return (
-          <SvgText key={`lbl-${i}`}
-            x={scaleX(i)} y={height - 10}
-            fontSize={10} fill="#555" textAnchor="middle">
-            {label}
-          </SvgText>
+          <React.Fragment key={`lbl-${i}`}>
+            <SvgText
+              x={scaleX(i)} y={height - (isStacked ? 20 : 10)}
+              fontSize={10} fill={isStacked ? "#aaa" : "#555"}
+              fontWeight={isStacked ? "600" : "400"} textAnchor="middle">
+              {line1}
+            </SvgText>
+            {isStacked && (
+              <SvgText
+                x={scaleX(i)} y={height - 8}
+                fontSize={10} fill="#555" textAnchor="middle">
+                {line2}
+              </SvgText>
+            )}
+          </React.Fragment>
         );
       })}
 
@@ -772,7 +834,7 @@ export default function StatsScreen({ isActive = true }) {
   const [chartSource, setChartSource] = useState({ sessions: [], goals: [] });
   const [chartRange, setChartRange] = useState(null);
   const [chartScrollX, setChartScrollX] = useState(0);
-  const [chartViewportWidth, setChartViewportWidth] = useState(SCREEN_W - 64);
+  const [chartViewportWidth, setChartViewportWidth] = useState(SCREEN_W - 64 - 55);
   const [overview, setOverview] = useState({ today: 0, week: 0, month: 0, total: 0 });
   const [editGoal, setEditGoal] = useState(null);
   const [editSeconds, setEditSeconds] = useState(0);
@@ -1022,42 +1084,50 @@ const handleSaveTime = async (goalId, newTotalSeconds) => {
                 </View>
               ))}
             </View>
-            <ScrollView
-              ref={chartScrollRef}
-              horizontal
-              nestedScrollEnabled
-              showsHorizontalScrollIndicator={false}
-              scrollEventThrottle={16}
-              onLayout={(event) => {
-                const nextWidth = event.nativeEvent.layout.width;
-                if (nextWidth > 0 && Math.abs(nextWidth - chartViewportWidth) > 1) {
-                  setChartViewportWidth(nextWidth);
-                }
-              }}
-              onScroll={(event) => {
-                setChartScrollX(event.nativeEvent.contentOffset.x);
-              }}
-            >
-              <View style={[s.chartCanvas, { width: chartContentWidth }]}>
-                <View
-                  style={[
-                    s.chartWindow,
-                    {
-                      left: chartWindow.left,
-                      width: chartWindow.width,
-                    },
-                  ]}
-                >
-                  <SvgLineChart
-                    data={chartData}
-                    width={chartWindow.width}
-                    height={CHART_HEIGHT}
-                    selectedPoint={selectedChartPoint}
-                    onPointSelect={setSelectedChartPoint}
-                  />
-                </View>
+            
+            <View style={s.chartContainer}>
+              <View style={s.fixedAxisContainer}>
+                <SvgFixedYAxis data={chartData} height={CHART_HEIGHT} />
               </View>
-            </ScrollView>
+
+              <ScrollView
+                ref={chartScrollRef}
+                horizontal
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator={false}
+                scrollEventThrottle={16}
+                style={s.chartScrollView}
+                onLayout={(event) => {
+                  const nextWidth = event.nativeEvent.layout.width;
+                  if (nextWidth > 0 && Math.abs(nextWidth - chartViewportWidth) > 1) {
+                    setChartViewportWidth(nextWidth);
+                  }
+                }}
+                onScroll={(event) => {
+                  setChartScrollX(event.nativeEvent.contentOffset.x);
+                }}
+              >
+                <View style={[s.chartCanvas, { width: chartContentWidth }]}>
+                  <View
+                    style={[
+                      s.chartWindow,
+                      {
+                        left: chartWindow.left,
+                        width: chartWindow.width,
+                      },
+                    ]}
+                  >
+                    <SvgLineChart
+                      data={chartData}
+                      width={chartWindow.width}
+                      height={CHART_HEIGHT}
+                      selectedPoint={selectedChartPoint}
+                      onPointSelect={setSelectedChartPoint}
+                    />
+                  </View>
+                </View>
+              </ScrollView>
+            </View>
       </View>
         )}
 
@@ -1141,6 +1211,9 @@ const s = StyleSheet.create({
   chartLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   chartLegendLine: { width: 18, height: 2, borderRadius: 1 },
   chartLegendText: { fontSize: 11, color: '#666' },
+  chartContainer: { flexDirection: 'row', alignItems: 'flex-start' },
+  fixedAxisContainer: { width: 55, zIndex: 10, backgroundColor: '#141414' },
+  chartScrollView: { flex: 1 },
   chartCanvas: { height: CHART_HEIGHT, position: 'relative' },
   chartWindow: { position: 'absolute', top: 0, height: CHART_HEIGHT },
   sectionRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 10, marginLeft: 2 },
